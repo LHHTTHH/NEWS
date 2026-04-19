@@ -24,3 +24,8 @@ export type SavedArticle = NewsGroup & {
 export type NewsResponse = {
   articles: NewsGroup[];
 };
+
+export type ArticleContentResponse = {
+  content: string;
+  resolvedUrl: string;
+};

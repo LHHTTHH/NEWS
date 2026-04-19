@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { fetchNews } from "./lib/api";
+import { fetchArticleContent, fetchNews } from "./lib/api";
 import { formatDateTime } from "./lib/format";
 import {
   loadExcludedSources,
@@ -27,6 +27,13 @@ const PERIOD_FILTER_OPTIONS: Array<{ value: PeriodFilter; label: string; days: n
 ];
 const SHOW_SAVED_PANEL = false;
 
+type ArticleContentState = {
+  status: "idle" | "loading" | "ready" | "error";
+  content?: string;
+  resolvedUrl?: string;
+  error?: string;
+};
+
 function App() {
   const [keywords, setKeywords] = useState<string[]>(() => loadKeywords());
   const [keywordEnabledMap, setKeywordEnabledMap] = useState<
@@ -47,6 +54,12 @@ function App() {
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [articles, setArticles] = useState<NewsGroup[]>([]);
+  const [expandedArticleIds, setExpandedArticleIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [articleContentMap, setArticleContentMap] = useState<
+    Record<string, ArticleContentState>
+  >({});
   const [keywordInput, setKeywordInput] = useState("");
   const [excludedWordInput, setExcludedWordInput] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -280,6 +293,63 @@ function App() {
           normalizeSourceName(sourceName) !== normalizedSourceName
       )
     );
+  }
+
+  async function handleToggleArticleContent(article: NewsGroup) {
+    const isExpanded = expandedArticleIds[article.id] ?? false;
+
+    if (isExpanded) {
+      setExpandedArticleIds((current) => ({
+        ...current,
+        [article.id]: false
+      }));
+      return;
+    }
+
+    setExpandedArticleIds((current) => ({
+      ...current,
+      [article.id]: true
+    }));
+
+    const currentContentState = articleContentMap[article.id];
+    if (
+      currentContentState?.status === "ready" ||
+      currentContentState?.status === "loading"
+    ) {
+      return;
+    }
+
+    setArticleContentMap((current) => ({
+      ...current,
+      [article.id]: {
+        status: "loading"
+      }
+    }));
+
+    try {
+      const articleContent = await fetchArticleContent(article.articleUrl);
+      setArticleContentMap((current) => ({
+        ...current,
+        [article.id]: {
+          status: "ready",
+          content: articleContent.content,
+          resolvedUrl: articleContent.resolvedUrl
+        }
+      }));
+    } catch (contentError) {
+      const message =
+        contentError instanceof Error
+          ? contentError.message
+          : "本文の取得に失敗しました。";
+
+      setArticleContentMap((current) => ({
+        ...current,
+        [article.id]: {
+          status: "error",
+          error: message
+        }
+      }));
+    }
   }
 
   async function handleRefresh() {
@@ -614,6 +684,13 @@ function App() {
                         <button
                           className="ghost-button compact-button article-action-button"
                           type="button"
+                          onClick={() => void handleToggleArticleContent(article)}
+                        >
+                          {expandedArticleIds[article.id] ? "本文を閉じる" : "本文を表示"}
+                        </button>
+                        <button
+                          className="ghost-button compact-button article-action-button"
+                          type="button"
                           onClick={() => handleAddExcludedSource(article.sourceName)}
                         >
                           このソースを除外
@@ -630,6 +707,47 @@ function App() {
                     </div>
 
                     <p className="summary">{article.summary}</p>
+
+                    {expandedArticleIds[article.id] ? (
+                      <div className="article-content-panel">
+                        {articleContentMap[article.id]?.status === "loading" ? (
+                          <p className="article-content-status">本文を取得中...</p>
+                        ) : null}
+
+                        {articleContentMap[article.id]?.status === "error" ? (
+                          <p className="article-content-error">
+                            {articleContentMap[article.id]?.error}
+                          </p>
+                        ) : null}
+
+                        {articleContentMap[article.id]?.status === "ready" ? (
+                          <>
+                            <div className="article-content-text">
+                              {articleContentMap[article.id]?.content
+                                ?.split(/\n{2,}/)
+                                .filter(Boolean)
+                                .map((paragraph, index) => (
+                                  <p key={`${article.id}-${index}`}>{paragraph}</p>
+                                ))}
+                            </div>
+                            {articleContentMap[article.id]?.resolvedUrl &&
+                            articleContentMap[article.id]?.resolvedUrl !==
+                              article.articleUrl ? (
+                              <p className="article-content-note">
+                                抽出元:{" "}
+                                <a
+                                  href={articleContentMap[article.id]?.resolvedUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  実際の記事URLを開く
+                                </a>
+                              </p>
+                            ) : null}
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div className="article-footer">
                       <span className="keyword-pill">{article.keyword}</span>

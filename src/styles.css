@@ -589,6 +589,49 @@ a {
   line-height: 1.65;
 }
 
+.article-content-panel {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.article-content-text {
+  color: #1f2937;
+  font-size: 0.92rem;
+  line-height: 1.75;
+}
+
+.article-content-text p {
+  margin: 0;
+}
+
+.article-content-text p + p {
+  margin-top: 12px;
+}
+
+.article-content-status,
+.article-content-note {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.84rem;
+}
+
+.article-content-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.84rem;
+}
+
+.article-content-note {
+  margin-top: 12px;
+}
+
+.article-content-note a {
+  color: #4b5563;
+}
+
 .article-footer {
   display: flex;
   flex-wrap: wrap;

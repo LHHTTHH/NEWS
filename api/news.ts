@@ -1,4 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
+import GoogleNewsDecoder from "google-news-decoder";
 import type { NewsGroup, RelatedLink } from "../src/types";
 
 type VercelRequest = {
@@ -45,6 +46,7 @@ type FlatArticle = {
 };
 
 const RSS_ITEM_LIMIT = 10;
+const googleNewsDecoder = new GoogleNewsDecoder();
 const parser = new XMLParser({
   ignoreAttributes: false,
   trimValues: true
@@ -209,30 +211,50 @@ async function fetchKeywordArticles(keyword: string): Promise<FlatArticle[]> {
   const rawItems = parsed.rss?.channel?.item ?? [];
   const items = Array.isArray(rawItems) ? rawItems : [rawItems];
 
-  return items.slice(0, RSS_ITEM_LIMIT).flatMap((item) => {
+  const articles = await Promise.all(
+    items.slice(0, RSS_ITEM_LIMIT).map(async (item) => {
     const title = item.title?.trim();
     const link = item.link?.trim();
 
     if (!title || !link) {
-      return [];
+      return null;
     }
 
     const normalizedTitle = normalizeTitle(title);
     const publishedAt = toIsoDate(item.pubDate);
+    const articleUrl = await decodeGoogleNewsUrl(link);
 
-    return [
-      {
-        id: `${normalizedTitle}::${link}`,
+      return {
+        id: `${normalizedTitle}::${articleUrl}`,
         title,
         sourceName: pickSourceName(item.source),
         publishedAt,
         summary: normalizeSummary(item.description),
-        articleUrl: link,
+        articleUrl,
         keyword,
         normalizedTitle
-      }
-    ];
-  });
+      };
+    })
+  );
+
+  return articles.filter((article): article is FlatArticle => article !== null);
+}
+
+async function decodeGoogleNewsUrl(url: string): Promise<string> {
+  if (!url.includes("news.google.com/")) {
+    return url;
+  }
+
+  try {
+    const decoded = await googleNewsDecoder.decodeGoogleNewsUrl(url);
+    if (decoded.status && decoded.decodedUrl) {
+      return decoded.decodedUrl;
+    }
+  } catch {
+    return url;
+  }
+
+  return url;
 }
 
 function groupArticles(articles: FlatArticle[]): NewsGroup[] {
