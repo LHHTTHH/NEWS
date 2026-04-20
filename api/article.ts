@@ -1,6 +1,6 @@
 import { Readability } from "@mozilla/readability";
 import GoogleNewsDecoder from "google-news-decoder";
-import { JSDOM } from "jsdom";
+import { DOMParser } from "linkedom";
 
 type VercelRequest = {
   query?: Record<string, string | string[] | undefined>;
@@ -11,6 +11,10 @@ type VercelResponse = {
   setHeader(name: string, value: string): void;
   status(code: number): VercelResponse;
   json(payload: unknown): void;
+};
+
+type ReadableDocument = {
+  querySelectorAll(selectors: string): ArrayLike<{ textContent: string | null }>;
 };
 
 const googleNewsDecoder = new GoogleNewsDecoder();
@@ -50,15 +54,15 @@ function normalizeText(value: string): string {
     .trim();
 }
 
-function extractFallbackContent(document: Document): string {
+function extractFallbackContent(document: ReadableDocument): string {
   const candidates = [
-    ...document.querySelectorAll("article p"),
-    ...document.querySelectorAll("main p")
+    ...Array.from(document.querySelectorAll("article p")),
+    ...Array.from(document.querySelectorAll("main p"))
   ];
 
   const paragraphs = (candidates.length > 0
     ? candidates
-    : [...document.querySelectorAll("p")])
+    : Array.from(document.querySelectorAll("p")))
     .map((element) => normalizeText(element.textContent ?? ""))
     .filter((paragraph) => paragraph.length > 40);
 
@@ -98,13 +102,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const html = await response.text();
-    const dom = new JSDOM(html, {
-      url: response.url
-    });
-
-    const readableArticle = new Readability(dom.window.document).parse();
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const readableArticle = new Readability(document as unknown as Document).parse();
     const readableContent = normalizeText(readableArticle?.textContent ?? "");
-    const fallbackContent = extractFallbackContent(dom.window.document);
+    const fallbackContent = extractFallbackContent(document);
     const content = readableContent || fallbackContent;
 
     if (!content) {
