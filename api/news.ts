@@ -43,6 +43,8 @@ type FlatArticle = {
   articleUrl: string;
   keyword: string;
   normalizedTitle: string;
+  normalizedComparableTitle: string;
+  summaryFingerprint: string;
 };
 
 const RSS_ITEM_LIMIT = 10;
@@ -51,6 +53,12 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   trimValues: true
 });
+const TITLE_NOISE_PATTERNS = [
+  /\b(?:yahoo!?\s*ニュース)\b/giu,
+  /\b(?:ロイター|reuters|共同通信|共同|時事通信|時事|afp|ap)\b/giu,
+  /\b(?:配信|提供)\b/giu,
+  /\b(?:速報|写真特集|動画)\b/giu
+];
 
 function normalizeKeyword(keyword: string): string {
   return keyword.trim();
@@ -64,6 +72,17 @@ function normalizeTitle(title: string): string {
     .trim();
 
   return normalized || title.toLowerCase().trim();
+}
+
+function normalizeComparableTitle(title: string): string {
+  let normalized = normalizeTitle(title);
+
+  for (const pattern of TITLE_NOISE_PATTERNS) {
+    normalized = normalized.replace(pattern, " ");
+  }
+
+  normalized = normalized.replace(/\s+/g, " ").trim();
+  return normalized || normalizeTitle(title);
 }
 
 const HTML_ENTITY_MAP: Record<string, string> = {
@@ -150,6 +169,78 @@ function normalizeSummary(description?: string): string {
   return cleaned.length > 180 ? `${cleaned.slice(0, 180).trim()}...` : cleaned;
 }
 
+function buildTextFingerprint(value: string): string {
+  const stopWords = new Set([
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "on",
+    "for",
+    "with",
+    "by",
+    "at",
+    "from",
+    "ai",
+    "news"
+  ]);
+
+  const tokens = normalizeTextContent(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 2 && !stopWords.has(token));
+
+  return [...new Set(tokens)].sort().join(" ");
+}
+
+function computeOverlapScore(left: string, right: string): number {
+  const leftTokens = left.split(" ").filter(Boolean);
+  const rightTokens = right.split(" ").filter(Boolean);
+
+  if (leftTokens.length === 0 || rightTokens.length === 0) {
+    return 0;
+  }
+
+  const leftSet = new Set(leftTokens);
+  const rightSet = new Set(rightTokens);
+  let intersectionSize = 0;
+
+  for (const token of leftSet) {
+    if (rightSet.has(token)) {
+      intersectionSize += 1;
+    }
+  }
+
+  return intersectionSize / Math.max(leftSet.size, rightSet.size);
+}
+
+function isLikelyDuplicateArticle(left: FlatArticle, right: FlatArticle): boolean {
+  if (left.articleUrl === right.articleUrl) {
+    return true;
+  }
+
+  if (left.normalizedComparableTitle === right.normalizedComparableTitle) {
+    return true;
+  }
+
+  const titleOverlapScore = computeOverlapScore(
+    buildTextFingerprint(left.normalizedComparableTitle),
+    buildTextFingerprint(right.normalizedComparableTitle)
+  );
+
+  const summaryOverlapScore = computeOverlapScore(
+    left.summaryFingerprint,
+    right.summaryFingerprint
+  );
+
+  return titleOverlapScore >= 0.8 || (titleOverlapScore >= 0.6 && summaryOverlapScore >= 0.45);
+}
+
 function toIsoDate(value?: string): string {
   if (!value) {
     return new Date(0).toISOString();
@@ -221,18 +312,22 @@ async function fetchKeywordArticles(keyword: string): Promise<FlatArticle[]> {
     }
 
     const normalizedTitle = normalizeTitle(title);
+    const normalizedComparableTitle = normalizeComparableTitle(title);
     const publishedAt = toIsoDate(item.pubDate);
     const articleUrl = await decodeGoogleNewsUrl(link);
+    const summary = normalizeSummary(item.description);
 
       return {
         id: `${normalizedTitle}::${articleUrl}`,
         title,
         sourceName: pickSourceName(item.source),
         publishedAt,
-        summary: normalizeSummary(item.description),
+        summary,
         articleUrl,
         keyword,
-        normalizedTitle
+        normalizedTitle,
+        normalizedComparableTitle,
+        summaryFingerprint: buildTextFingerprint(summary)
       };
     })
   );
@@ -258,20 +353,21 @@ async function decodeGoogleNewsUrl(url: string): Promise<string> {
 }
 
 function groupArticles(articles: FlatArticle[]): NewsGroup[] {
-  const grouped = new Map<string, FlatArticle[]>();
+  const grouped: FlatArticle[][] = [];
 
   for (const article of articles) {
-    const groupKey = article.normalizedTitle;
-    const group = grouped.get(groupKey);
+    const existingGroup = grouped.find((group) =>
+      group.some((groupedArticle) => isLikelyDuplicateArticle(groupedArticle, article))
+    );
 
-    if (group) {
-      group.push(article);
+    if (existingGroup) {
+      existingGroup.push(article);
     } else {
-      grouped.set(groupKey, [article]);
+      grouped.push([article]);
     }
   }
 
-  return [...grouped.values()]
+  return grouped
     .map((groupArticlesForTitle) => {
       const sortedGroup = [...groupArticlesForTitle].sort(
         (left, right) =>
