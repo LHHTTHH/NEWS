@@ -1,8 +1,16 @@
 import { Readability } from "@mozilla/readability";
 import GoogleNewsDecoder from "google-news-decoder";
 import { DOMParser } from "linkedom";
+import {
+  fetchTextWithGuards,
+  isGetRequest,
+  logError,
+  parseHttpUrl,
+  setJsonHeaders
+} from "./_http";
 
 type VercelRequest = {
+  method?: string;
   query?: Record<string, string | string[] | undefined>;
   url?: string;
 };
@@ -18,8 +26,10 @@ type ReadableDocument = {
 };
 
 const googleNewsDecoder = new GoogleNewsDecoder();
+const ARTICLE_FETCH_TIMEOUT_MS = 8000;
+const ARTICLE_MAX_BYTES = 1_500_000;
 
-function parseArticleUrl(req: VercelRequest): string | null {
+function parseArticleUrl(req: VercelRequest): URL | null {
   const queryValue = req.query?.url;
   const rawUrl = Array.isArray(queryValue) ? queryValue[0] : queryValue;
 
@@ -33,16 +43,7 @@ function parseArticleUrl(req: VercelRequest): string | null {
     return null;
   }
 
-  try {
-    const parsedUrl = new URL(candidate);
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      return null;
-    }
-
-    return parsedUrl.toString();
-  } catch {
-    return null;
-  }
+  return parseHttpUrl(candidate);
 }
 
 function normalizeText(value: string): string {
@@ -70,38 +71,46 @@ function extractFallbackContent(document: ReadableDocument): string {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  setJsonHeaders(res);
   res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=3600");
+
+  if (!isGetRequest(req.method)) {
+    res.status(405).json({
+      error: "GET メソッドでアクセスしてください。"
+    });
+    return;
+  }
 
   const requestedArticleUrl = parseArticleUrl(req);
   const articleUrl = requestedArticleUrl
-    ? await decodeGoogleNewsUrl(requestedArticleUrl)
+    ? await decodeGoogleNewsUrl(requestedArticleUrl.toString())
     : null;
   if (!articleUrl) {
     res.status(400).json({
-      error: "url クエリに有効な記事URLを指定してください。"
+      error: "url クエリに公開 HTTP/HTTPS の記事URLを指定してください。"
     });
     return;
   }
 
   try {
-    const response = await fetch(articleUrl, {
+    const fetchResult = await fetchTextWithGuards(articleUrl, {
       headers: {
         "user-agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
         "accept-language": "ja,en-US;q=0.9,en;q=0.8"
       },
-      redirect: "follow"
+      maxBytes: ARTICLE_MAX_BYTES,
+      timeoutMs: ARTICLE_FETCH_TIMEOUT_MS
     });
-
-    if (!response.ok) {
-      res.status(502).json({
-        error: "元記事の取得に失敗しました。"
+    const contentType = fetchResult.response.headers.get("content-type") ?? "";
+    if (contentType && !contentType.includes("text/html")) {
+      res.status(415).json({
+        error: "HTML記事として本文を抽出できませんでした。"
       });
       return;
     }
 
-    const html = await response.text();
+    const html = fetchResult.text;
     const document = new DOMParser().parseFromString(html, "text/html");
     const readableArticle = new Readability(document as unknown as Document).parse();
     const readableContent = normalizeText(readableArticle?.textContent ?? "");
@@ -117,28 +126,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     res.status(200).json({
       content,
-      resolvedUrl: response.url
+      resolvedUrl: fetchResult.finalUrl
     });
-  } catch {
-    res.status(500).json({
+  } catch (error) {
+    logError("article_fetch_failed", error, {
+      host: articleUrl.hostname
+    });
+    res.status(502).json({
       error: "本文取得中にエラーが発生しました。"
     });
   }
 }
 
-async function decodeGoogleNewsUrl(url: string): Promise<string> {
+async function decodeGoogleNewsUrl(url: string): Promise<URL | null> {
   if (!url.includes("news.google.com/")) {
-    return url;
+    return parseHttpUrl(url);
   }
 
   try {
     const decoded = await googleNewsDecoder.decodeGoogleNewsUrl(url);
     if (decoded.status && decoded.decodedUrl) {
-      return decoded.decodedUrl;
+      return parseHttpUrl(decoded.decodedUrl);
     }
   } catch {
-    return url;
+    return parseHttpUrl(url);
   }
 
-  return url;
+  return parseHttpUrl(url);
 }

@@ -12,29 +12,42 @@ function readJson<T>(storageKey: string, fallback: T): T {
     return fallback;
   }
 
-  const rawValue = window.localStorage.getItem(storageKey);
-  if (!rawValue) {
-    return fallback;
-  }
-
   try {
+    const rawValue = window.localStorage.getItem(storageKey);
+    if (!rawValue) {
+      return fallback;
+    }
+
     return JSON.parse(rawValue) as T;
   } catch {
     return fallback;
   }
 }
 
-export function loadKeywords(): string[] {
-  const keywords = readJson<string[]>(KEYWORDS_STORAGE_KEY, []);
-  return Array.isArray(keywords) ? keywords : [];
-}
-
-export function saveKeywords(keywords: string[]): void {
+function writeJson(storageKey: string, value: unknown): void {
   if (typeof window === "undefined") {
     return;
   }
 
-  window.localStorage.setItem(KEYWORDS_STORAGE_KEY, JSON.stringify(keywords));
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(value));
+  } catch (error) {
+    console.warn("localStorage_write_failed", {
+      storageKey,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+export function loadKeywords(): string[] {
+  const keywords = readJson<string[]>(KEYWORDS_STORAGE_KEY, []);
+  return Array.isArray(keywords)
+    ? keywords.filter((keyword): keyword is string => typeof keyword === "string")
+    : [];
+}
+
+export function saveKeywords(keywords: string[]): void {
+  writeJson(KEYWORDS_STORAGE_KEY, keywords);
 }
 
 export function loadKeywordEnabledMap(): Record<string, boolean> {
@@ -57,46 +70,29 @@ export function loadKeywordEnabledMap(): Record<string, boolean> {
 export function saveKeywordEnabledMap(
   enabledMap: Record<string, boolean>
 ): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(
-    KEYWORD_ENABLED_MAP_STORAGE_KEY,
-    JSON.stringify(enabledMap)
-  );
+  writeJson(KEYWORD_ENABLED_MAP_STORAGE_KEY, enabledMap);
 }
 
 export function loadExcludedWords(): string[] {
   const excludedWords = readJson<string[]>(EXCLUDED_WORDS_STORAGE_KEY, []);
-  return Array.isArray(excludedWords) ? excludedWords : [];
+  return Array.isArray(excludedWords)
+    ? excludedWords.filter((word): word is string => typeof word === "string")
+    : [];
 }
 
 export function saveExcludedWords(excludedWords: string[]): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(
-    EXCLUDED_WORDS_STORAGE_KEY,
-    JSON.stringify(excludedWords)
-  );
+  writeJson(EXCLUDED_WORDS_STORAGE_KEY, excludedWords);
 }
 
 export function loadExcludedSources(): string[] {
   const excludedSources = readJson<string[]>(EXCLUDED_SOURCES_STORAGE_KEY, []);
-  return Array.isArray(excludedSources) ? excludedSources : [];
+  return Array.isArray(excludedSources)
+    ? excludedSources.filter((source): source is string => typeof source === "string")
+    : [];
 }
 
 export function saveExcludedSources(excludedSources: string[]): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(
-    EXCLUDED_SOURCES_STORAGE_KEY,
-    JSON.stringify(excludedSources)
-  );
+  writeJson(EXCLUDED_SOURCES_STORAGE_KEY, excludedSources);
 }
 
 export function loadPeriodFilter(): string {
@@ -105,28 +101,35 @@ export function loadPeriodFilter(): string {
 }
 
 export function savePeriodFilter(periodFilter: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(
-    PERIOD_FILTER_STORAGE_KEY,
-    JSON.stringify(periodFilter)
-  );
+  writeJson(PERIOD_FILTER_STORAGE_KEY, periodFilter);
 }
 
 export function loadSavedArticles(): SavedArticle[] {
   const articles = readJson<SavedArticle[]>(SAVED_ARTICLES_STORAGE_KEY, []);
-  return Array.isArray(articles) ? articles : [];
+  return Array.isArray(articles)
+    ? articles.filter((article): article is SavedArticle => isSavedArticle(article))
+    : [];
 }
 
 export function saveSavedArticles(articles: SavedArticle[]): void {
-  if (typeof window === "undefined") {
-    return;
+  writeJson(SAVED_ARTICLES_STORAGE_KEY, articles);
+}
+
+function isSavedArticle(value: unknown): value is SavedArticle {
+  if (!value || typeof value !== "object") {
+    return false;
   }
 
-  window.localStorage.setItem(
-    SAVED_ARTICLES_STORAGE_KEY,
-    JSON.stringify(articles)
+  const article = value as Partial<SavedArticle>;
+  return (
+    typeof article.id === "string" &&
+    typeof article.title === "string" &&
+    typeof article.sourceName === "string" &&
+    typeof article.publishedAt === "string" &&
+    typeof article.summary === "string" &&
+    typeof article.articleUrl === "string" &&
+    typeof article.keyword === "string" &&
+    typeof article.savedAt === "string" &&
+    Array.isArray(article.relatedLinks)
   );
 }

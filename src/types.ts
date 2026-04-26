@@ -23,6 +23,7 @@ export type SavedArticle = NewsGroup & {
 
 export type NewsResponse = {
   articles: NewsGroup[];
+  partialFailureKeywords?: string[];
 };
 
 export type ArticleContentResponse = {

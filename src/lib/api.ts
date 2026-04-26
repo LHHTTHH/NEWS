@@ -1,10 +1,9 @@
 import type {
   ArticleContentResponse,
-  NewsGroup,
   NewsResponse
 } from "../types";
 
-export async function fetchNews(keywords: string[]): Promise<NewsGroup[]> {
+export async function fetchNews(keywords: string[]): Promise<NewsResponse> {
   const params = new URLSearchParams();
   params.set("keywords", keywords.join(","));
 
@@ -15,7 +14,10 @@ export async function fetchNews(keywords: string[]): Promise<NewsGroup[]> {
     throw new Error(payload.error ?? "ニュースの取得に失敗しました。");
   }
 
-  return payload.articles ?? [];
+  return {
+    articles: payload.articles ?? [],
+    partialFailureKeywords: payload.partialFailureKeywords ?? []
+  };
 }
 
 export async function fetchArticleContent(

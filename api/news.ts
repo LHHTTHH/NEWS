@@ -1,8 +1,10 @@
 import { XMLParser } from "fast-xml-parser";
 import GoogleNewsDecoder from "google-news-decoder";
 import type { NewsGroup, RelatedLink } from "../src/types";
+import { fetchWithTimeout, isGetRequest, logWarning, setJsonHeaders } from "./_http";
 
 type VercelRequest = {
+  method?: string;
   query?: Record<string, string | string[] | undefined>;
   url?: string;
 };
@@ -48,6 +50,9 @@ type FlatArticle = {
 };
 
 const RSS_ITEM_LIMIT = 10;
+const MAX_KEYWORDS = 10;
+const MAX_KEYWORD_LENGTH = 80;
+const RSS_FETCH_TIMEOUT_MS = 8000;
 const googleNewsDecoder = new GoogleNewsDecoder();
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -61,7 +66,7 @@ const TITLE_NOISE_PATTERNS = [
 ];
 
 function normalizeKeyword(keyword: string): string {
-  return keyword.trim();
+  return keyword.trim().replace(/\s+/g, " ").slice(0, MAX_KEYWORD_LENGTH);
 }
 
 function normalizeTitle(title: string): string {
@@ -258,7 +263,7 @@ function parseKeywords(req: VercelRequest): string[] {
   const queryValue = req.query?.keywords;
 
   if (typeof queryValue === "string") {
-    return [...new Set(queryValue.split(",").map(normalizeKeyword).filter(Boolean))].slice(0, 10);
+    return [...new Set(queryValue.split(",").map(normalizeKeyword).filter(Boolean))].slice(0, MAX_KEYWORDS);
   }
 
   if (Array.isArray(queryValue)) {
@@ -266,7 +271,7 @@ function parseKeywords(req: VercelRequest): string[] {
       ...new Set(
         queryValue.flatMap((value) => value.split(",")).map(normalizeKeyword).filter(Boolean)
       )
-    ].slice(0, 10);
+    ].slice(0, MAX_KEYWORDS);
   }
 
   if (!req.url) {
@@ -280,7 +285,7 @@ function parseKeywords(req: VercelRequest): string[] {
     return [];
   }
 
-  return [...new Set(rawKeywords.split(",").map(normalizeKeyword).filter(Boolean))].slice(0, 10);
+  return [...new Set(rawKeywords.split(",").map(normalizeKeyword).filter(Boolean))].slice(0, MAX_KEYWORDS);
 }
 
 async function fetchKeywordArticles(keyword: string): Promise<FlatArticle[]> {
@@ -292,7 +297,7 @@ async function fetchKeywordArticles(keyword: string): Promise<FlatArticle[]> {
   });
   const url = `https://news.google.com/rss/search?${searchParams.toString()}`;
 
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url, {}, RSS_FETCH_TIMEOUT_MS);
   if (!response.ok) {
     throw new Error(`RSS request failed for keyword: ${keyword}`);
   }
@@ -304,18 +309,18 @@ async function fetchKeywordArticles(keyword: string): Promise<FlatArticle[]> {
 
   const articles = await Promise.all(
     items.slice(0, RSS_ITEM_LIMIT).map(async (item) => {
-    const title = item.title?.trim();
-    const link = item.link?.trim();
+      const title = item.title?.trim();
+      const link = item.link?.trim();
 
-    if (!title || !link) {
-      return null;
-    }
+      if (!title || !link) {
+        return null;
+      }
 
-    const normalizedTitle = normalizeTitle(title);
-    const normalizedComparableTitle = normalizeComparableTitle(title);
-    const publishedAt = toIsoDate(item.pubDate);
-    const articleUrl = await decodeGoogleNewsUrl(link);
-    const summary = normalizeSummary(item.description);
+      const normalizedTitle = normalizeTitle(title);
+      const normalizedComparableTitle = normalizeComparableTitle(title);
+      const publishedAt = toIsoDate(item.pubDate);
+      const articleUrl = await decodeGoogleNewsUrl(link);
+      const summary = normalizeSummary(item.description);
 
       return {
         id: `${normalizedTitle}::${articleUrl}`,
@@ -403,8 +408,15 @@ function groupArticles(articles: FlatArticle[]): NewsGroup[] {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  setJsonHeaders(res);
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+
+  if (!isGetRequest(req.method)) {
+    res.status(405).json({
+      error: "GET メソッドでアクセスしてください。"
+    });
+    return;
+  }
 
   const keywords = parseKeywords(req);
 
@@ -423,18 +435,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const collectedArticles = results.flatMap((result) =>
       result.status === "fulfilled" ? result.value : []
     );
+    const failedKeywords = results.flatMap((result, index) =>
+      result.status === "rejected" ? [keywords[index]] : []
+    );
+
+    if (failedKeywords.length > 0) {
+      logWarning("news_keyword_fetch_failed", {
+        failedKeywords,
+        requestedKeywords: keywords.length
+      });
+    }
 
     if (collectedArticles.length === 0) {
-      res.status(500).json({
+      res.status(502).json({
         error: "ニュースを取得できませんでした。時間をおいて再度お試しください。"
       });
       return;
     }
 
     res.status(200).json({
-      articles: groupArticles(collectedArticles)
+      articles: groupArticles(collectedArticles),
+      partialFailureKeywords: failedKeywords
     });
-  } catch {
+  } catch (error) {
+    logWarning("news_fetch_unexpected_error", {
+      error: error instanceof Error ? error.message : String(error)
+    });
     res.status(500).json({
       error: "ニュースの取得中にエラーが発生しました。"
     });

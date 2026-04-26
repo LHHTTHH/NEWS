@@ -63,6 +63,7 @@ function App() {
   const [keywordInput, setKeywordInput] = useState("");
   const [excludedWordInput, setExcludedWordInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
@@ -112,14 +113,16 @@ function App() {
     async function loadArticles() {
       setLoading(true);
       setError(null);
+      setWarning(null);
 
       try {
-        const nextArticles = await fetchNews(activeKeywords);
+        const newsResponse = await fetchNews(activeKeywords);
         if (!active) {
           return;
         }
 
-        setArticles(nextArticles);
+        setArticles(newsResponse.articles);
+        setWarning(buildPartialFailureMessage(newsResponse.partialFailureKeywords));
         setLastUpdatedAt(new Date().toISOString());
       } catch (loadError) {
         if (!active) {
@@ -359,10 +362,12 @@ function App() {
 
     setLoading(true);
     setError(null);
+    setWarning(null);
 
     try {
-      const nextArticles = await fetchNews(activeKeywords);
-      setArticles(nextArticles);
+      const newsResponse = await fetchNews(activeKeywords);
+      setArticles(newsResponse.articles);
+      setWarning(buildPartialFailureMessage(newsResponse.partialFailureKeywords));
       setLastUpdatedAt(new Date().toISOString());
     } catch (loadError) {
       const message =
@@ -597,6 +602,7 @@ function App() {
           </div>
 
           {error ? <p className="error-banner">{error}</p> : null}
+          {warning ? <p className="warning-banner">{warning}</p> : null}
         </section>
 
         <section
@@ -667,8 +673,8 @@ function App() {
                 />
               ) : visibleArticles.length === 0 && !loading ? (
                 <EmptyState
-                  title="除外ワードの条件で記事が表示されていません"
-                  description="除外ワードを減らすか、キーワードを変えて再取得してください。"
+                  title="除外条件で記事が表示されていません"
+                  description="除外ワードや除外ソースを減らすか、キーワードを変えて再取得してください。"
                 />
               ) : (
                 visibleArticles.map((article) => (
@@ -863,6 +869,14 @@ function isArticleInPeriod(publishedAt: string, periodFilter: PeriodFilter): boo
 
 function normalizeSourceName(sourceName: string): string {
   return sourceName.trim().toLowerCase();
+}
+
+function buildPartialFailureMessage(failedKeywords?: string[]): string | null {
+  if (!failedKeywords || failedKeywords.length === 0) {
+    return null;
+  }
+
+  return `一部キーワードの取得に失敗しました: ${failedKeywords.join(", ")}`;
 }
 
 export default App;

@@ -361,13 +361,22 @@ a {
   font-weight: 500;
 }
 
-.error-banner {
+.error-banner,
+.warning-banner {
   margin: 14px 0 0;
   padding: 10px 14px;
   border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.error-banner {
   background: #fef2f2;
   color: #b91c1c;
-  font-size: 0.9rem;
+}
+
+.warning-banner {
+  background: #fffbeb;
+  color: #92400e;
 }
 
 /* ===== Content Grid ===== */
