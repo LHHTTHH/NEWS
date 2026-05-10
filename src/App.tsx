@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { fetchArticleContent, fetchNews } from "./lib/api";
+import {
+  checkSession,
+  fetchArticleContent,
+  fetchNews,
+  login,
+  logout
+} from "./lib/api";
 import { formatDateTime } from "./lib/format";
 import {
   loadExcludedSources,
@@ -19,6 +25,7 @@ import {
 import type { NewsGroup, SavedArticle } from "./types";
 
 type PeriodFilter = "24h" | "3d" | "7d";
+type AuthStatus = "checking" | "authenticated" | "unauthenticated";
 
 const PERIOD_FILTER_OPTIONS: Array<{ value: PeriodFilter; label: string; days: number }> = [
   { value: "24h", label: "24時間以内", days: 1 },
@@ -66,6 +73,43 @@ function App() {
   const [warning, setWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSession() {
+      try {
+        const session = await checkSession();
+        if (!active) {
+          return;
+        }
+
+        setAuthStatus(session.authenticated ? "authenticated" : "unauthenticated");
+        setAuthError(session.error ?? null);
+      } catch (sessionError) {
+        if (!active) {
+          return;
+        }
+
+        setAuthStatus("unauthenticated");
+        setAuthError(
+          sessionError instanceof Error
+            ? sessionError.message
+            : "ログイン状態の確認に失敗しました。"
+        );
+      }
+    }
+
+    void loadSession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     saveKeywords(keywords);
@@ -95,6 +139,10 @@ function App() {
   }, [savedArticles]);
 
   useEffect(() => {
+    if (authStatus !== "authenticated") {
+      return;
+    }
+
     const activeKeywords = keywords.filter(
       (keyword) => keywordEnabledMap[keyword] ?? true
     );
@@ -134,6 +182,10 @@ function App() {
             ? loadError.message
             : "ニュースの取得に失敗しました。";
 
+        if (message.includes("ログイン")) {
+          setAuthStatus("unauthenticated");
+        }
+
         setError(message);
       } finally {
         if (active) {
@@ -147,7 +199,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [keywords, keywordEnabledMap]);
+  }, [authStatus, keywords, keywordEnabledMap]);
 
   const activeKeywords = keywords.filter(
     (keyword) => keywordEnabledMap[keyword] ?? true
@@ -345,6 +397,10 @@ function App() {
           ? contentError.message
           : "本文の取得に失敗しました。";
 
+      if (message.includes("ログイン")) {
+        setAuthStatus("unauthenticated");
+      }
+
       setArticleContentMap((current) => ({
         ...current,
         [article.id]: {
@@ -374,6 +430,10 @@ function App() {
         loadError instanceof Error
           ? loadError.message
           : "ニュースの取得に失敗しました。";
+
+      if (message.includes("ログイン")) {
+        setAuthStatus("unauthenticated");
+      }
 
       setError(message);
     } finally {
@@ -405,6 +465,62 @@ function App() {
 
   function isSaved(articleId: string): boolean {
     return savedArticles.some((article) => article.id === articleId);
+  }
+
+  async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!authPassword) {
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      const response = await login(authPassword);
+      setAuthStatus(response.authenticated ? "authenticated" : "unauthenticated");
+      setAuthPassword("");
+    } catch (loginError) {
+      setAuthError(
+        loginError instanceof Error ? loginError.message : "ログインに失敗しました。"
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      await logout();
+      setAuthStatus("unauthenticated");
+      setArticles([]);
+      setLastUpdatedAt(null);
+    } catch (logoutError) {
+      setAuthError(
+        logoutError instanceof Error
+          ? logoutError.message
+          : "ログアウトに失敗しました。"
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  if (authStatus !== "authenticated") {
+    return (
+      <AuthScreen
+        authError={authError}
+        authLoading={authLoading}
+        authPassword={authPassword}
+        authStatus={authStatus}
+        onPasswordChange={setAuthPassword}
+        onSubmit={handleLoginSubmit}
+      />
+    );
   }
 
   return (
@@ -449,6 +565,14 @@ function App() {
                 onClick={() => setIsSettingsOpen((current) => !current)}
               >
                 {isSettingsOpen ? "条件設定を閉じる" : "条件設定を開く"}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => void handleLogout()}
+                disabled={authLoading}
+              >
+                ログアウト
               </button>
             </div>
           </form>
@@ -835,6 +959,65 @@ type EmptyStateProps = {
   title: string;
   description: string;
 };
+
+type AuthScreenProps = {
+  authError: string | null;
+  authLoading: boolean;
+  authPassword: string;
+  authStatus: AuthStatus;
+  onPasswordChange(password: string): void;
+  onSubmit(event: FormEvent<HTMLFormElement>): void;
+};
+
+function AuthScreen({
+  authError,
+  authLoading,
+  authPassword,
+  authStatus,
+  onPasswordChange,
+  onSubmit
+}: AuthScreenProps) {
+  return (
+    <div className="page-shell auth-page-shell">
+      <main className="auth-container">
+        <section className="panel auth-panel">
+          <p className="eyebrow">Private News</p>
+          <h1>AIニュース収集</h1>
+          <p className="auth-description">
+            パスワードを入力すると、登録済みキーワードのニュースを表示できます。
+          </p>
+
+          {authStatus === "checking" ? (
+            <p className="muted-text">ログイン状態を確認しています...</p>
+          ) : (
+            <form className="auth-form" onSubmit={onSubmit}>
+              <label className="field-label" htmlFor="auth-password">
+                パスワード
+              </label>
+              <input
+                id="auth-password"
+                className="text-input"
+                type="password"
+                autoComplete="current-password"
+                value={authPassword}
+                onChange={(event) => onPasswordChange(event.target.value)}
+              />
+              <button
+                className="primary-button auth-submit-button"
+                type="submit"
+                disabled={authLoading || !authPassword}
+              >
+                {authLoading ? "確認中..." : "開く"}
+              </button>
+            </form>
+          )}
+
+          {authError ? <p className="error-banner">{authError}</p> : null}
+        </section>
+      </main>
+    </div>
+  );
+}
 
 function EmptyState({ title, description }: EmptyStateProps) {
   return (

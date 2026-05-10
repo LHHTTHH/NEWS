@@ -202,6 +202,13 @@ a {
   transform: none;
 }
 
+.primary-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .ghost-button {
   background: transparent;
   color: #6b7280;
@@ -377,6 +384,44 @@ a {
 .warning-banner {
   background: #fffbeb;
   color: #92400e;
+}
+
+/* ===== Auth ===== */
+
+.auth-page-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+.auth-container {
+  width: min(440px, 100%);
+}
+
+.auth-panel {
+  padding: 24px;
+}
+
+.auth-panel h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  letter-spacing: -0.04em;
+}
+
+.auth-description {
+  margin: 8px 0 20px;
+  color: #6b7280;
+  font-size: 0.92rem;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-form .text-input,
+.auth-submit-button {
+  width: 100%;
 }
 
 /* ===== Content Grid ===== */

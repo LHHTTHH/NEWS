@@ -1,10 +1,12 @@
 import { XMLParser } from "fast-xml-parser";
 import GoogleNewsDecoder from "google-news-decoder";
 import type { NewsGroup, RelatedLink } from "../src/types";
-import { fetchWithTimeout, isGetRequest, logWarning, setJsonHeaders } from "./_http";
+import { requireAuth } from "./_auth.js";
+import { fetchWithTimeout, isGetRequest, logWarning, setJsonHeaders } from "./_http.js";
 
 type VercelRequest = {
   method?: string;
+  headers?: Record<string, string | string[] | undefined>;
   query?: Record<string, string | string[] | undefined>;
   url?: string;
 };
@@ -415,6 +417,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(405).json({
       error: "GET メソッドでアクセスしてください。"
     });
+    return;
+  }
+
+  if (!(await requireAuth(req, res))) {
     return;
   }
 

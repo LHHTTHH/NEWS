@@ -30,3 +30,8 @@ export type ArticleContentResponse = {
   content: string;
   resolvedUrl: string;
 };
+
+export type AuthResponse = {
+  authenticated: boolean;
+  error?: string;
+};

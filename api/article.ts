@@ -1,16 +1,18 @@
 import { Readability } from "@mozilla/readability";
 import GoogleNewsDecoder from "google-news-decoder";
 import { DOMParser } from "linkedom";
+import { requireAuth } from "./_auth.js";
 import {
   fetchTextWithGuards,
   isGetRequest,
   logError,
   parseHttpUrl,
   setJsonHeaders
-} from "./_http";
+} from "./_http.js";
 
 type VercelRequest = {
   method?: string;
+  headers?: Record<string, string | string[] | undefined>;
   query?: Record<string, string | string[] | undefined>;
   url?: string;
 };
@@ -78,6 +80,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(405).json({
       error: "GET メソッドでアクセスしてください。"
     });
+    return;
+  }
+
+  if (!(await requireAuth(req, res))) {
     return;
   }
 

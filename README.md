@@ -86,6 +86,30 @@ http://localhost:3000
 - 初回は Vercel CLI のログインが必要になることがあります
 - このリポジトリでは `/api/news` と `/api/article` を Vercel Functions として使います
 
+## 外部公開時の認証
+
+外部からスマホで見る場合は、Vercel の環境変数に共有パスワードを設定してください。
+
+必須:
+
+- `NEWS_APP_PASSWORD`
+  - ログイン画面で入力する共有パスワード
+
+任意:
+
+- `NEWS_AUTH_SECRET`
+  - セッション Cookie の署名用シークレット
+  - 未設定の場合は `NEWS_APP_PASSWORD` を署名にも使います
+
+設定例:
+
+```bash
+npx vercel env add NEWS_APP_PASSWORD production
+npx vercel env add NEWS_AUTH_SECRET production
+```
+
+認証が未設定の状態では、API は `503` を返してニュースを表示しません。
+
 ## localStorage に保存している項目
 
 - `ai-news-keywords`
