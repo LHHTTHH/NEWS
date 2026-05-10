@@ -419,6 +419,18 @@ a {
   gap: 10px;
 }
 
+.auth-username-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  clip: rect(0 0 0 0);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .auth-form .text-input,
 .auth-submit-button {
   width: 100%;

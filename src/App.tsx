@@ -470,7 +470,10 @@ function App() {
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!authPassword) {
+    const formData = new FormData(event.currentTarget);
+    const submittedPassword = String(formData.get("password") ?? authPassword).trim();
+
+    if (!submittedPassword) {
       return;
     }
 
@@ -478,7 +481,7 @@ function App() {
     setAuthError(null);
 
     try {
-      const response = await login(authPassword);
+      const response = await login(submittedPassword);
       setAuthStatus(response.authenticated ? "authenticated" : "unauthenticated");
       setAuthPassword("");
     } catch (loginError) {
@@ -990,7 +993,17 @@ function AuthScreen({
           {authStatus === "checking" ? (
             <p className="muted-text">ログイン状態を確認しています...</p>
           ) : (
-            <form className="auth-form" onSubmit={onSubmit}>
+            <form className="auth-form" autoComplete="on" onSubmit={onSubmit}>
+              <input
+                className="auth-username-input"
+                type="text"
+                name="username"
+                autoComplete="username"
+                value="news"
+                readOnly
+                tabIndex={-1}
+                aria-hidden="true"
+              />
               <label className="field-label" htmlFor="auth-password">
                 パスワード
               </label>
@@ -998,14 +1011,16 @@ function AuthScreen({
                 id="auth-password"
                 className="text-input"
                 type="password"
+                name="password"
                 autoComplete="current-password"
                 value={authPassword}
                 onChange={(event) => onPasswordChange(event.target.value)}
+                onInput={(event) => onPasswordChange(event.currentTarget.value)}
               />
               <button
                 className="primary-button auth-submit-button"
                 type="submit"
-                disabled={authLoading || !authPassword}
+                disabled={authLoading}
               >
                 {authLoading ? "確認中..." : "開く"}
               </button>
