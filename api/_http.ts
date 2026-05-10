@@ -84,7 +84,7 @@ export async function fetchTextWithGuards(
     }
 
     return {
-      text: new TextDecoder().decode(buffer),
+      text: decodeResponseText(buffer, response.headers.get("content-type")),
       finalUrl: response.url || nextUrl.toString(),
       response
     };
@@ -179,4 +179,79 @@ function isIpv6Literal(value: string): boolean {
 
 function isRedirectResponse(status: number): boolean {
   return status >= 300 && status < 400;
+}
+
+function decodeResponseText(buffer: ArrayBuffer, contentType: string | null): string {
+  const bytes = new Uint8Array(buffer);
+  const headerEncoding = normalizeEncoding(extractCharset(contentType ?? ""));
+  const sniffedEncoding = normalizeEncoding(sniffHtmlEncoding(bytes));
+  const encodings = [
+    headerEncoding,
+    sniffedEncoding,
+    "utf-8",
+    "shift_jis",
+    "euc-jp"
+  ].filter((encoding, index, allEncodings): encoding is string =>
+    Boolean(encoding) && allEncodings.indexOf(encoding) === index
+  );
+
+  for (const encoding of encodings) {
+    try {
+      const decodedText = new TextDecoder(encoding, {
+        fatal: encoding !== "utf-8"
+      }).decode(bytes);
+
+      if (!looksMojibake(decodedText)) {
+        return decodedText;
+      }
+    } catch {
+      // Try the next candidate encoding.
+    }
+  }
+
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+function extractCharset(contentType: string): string | null {
+  return contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] ?? null;
+}
+
+function sniffHtmlEncoding(bytes: Uint8Array): string | null {
+  const sample = new TextDecoder("latin1").decode(bytes.slice(0, 4096));
+  return (
+    sample.match(/<meta[^>]+charset\s*=\s*["']?\s*([^"'\s/>]+)/i)?.[1] ??
+    sample.match(/<meta[^>]+content\s*=\s*["'][^"']*charset\s*=\s*([^"'\s;]+)/i)?.[1] ??
+    null
+  );
+}
+
+function normalizeEncoding(encoding?: string | null): string | null {
+  if (!encoding) {
+    return null;
+  }
+
+  const normalized = encoding.trim().toLowerCase().replace(/_/g, "-");
+
+  if (["shift-jis", "shift_jis", "sjis", "windows-31j", "x-sjis"].includes(normalized)) {
+    return "shift_jis";
+  }
+
+  if (["eucjp", "euc-jp", "x-euc-jp"].includes(normalized)) {
+    return "euc-jp";
+  }
+
+  if (["utf8", "utf-8"].includes(normalized)) {
+    return "utf-8";
+  }
+
+  return normalized;
+}
+
+function looksMojibake(value: string): boolean {
+  const sample = value.slice(0, 4000);
+  const replacementCount = (sample.match(/\uFFFD/g) ?? []).length;
+  const mojibakeCount = (sample.match(/[ÃÂãäåæçèéêëìíîïðñòóôõöøùúûüýþï¿½]/g) ?? [])
+    .length;
+
+  return replacementCount > 3 || mojibakeCount > 16;
 }

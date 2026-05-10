@@ -1,7 +1,15 @@
 :root {
   color: #111827;
   background: #f5f6f8;
-  font-family: "Avenir Next", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Helvetica Neue",
+    "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN",
+    "Yu Gothic",
+    Meiryo,
+    sans-serif;
   line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;
@@ -72,7 +80,7 @@ a {
 
 .hero-copy h1 {
   font-size: clamp(1.5rem, 2.5vw, 2rem);
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .hero-description {
@@ -405,7 +413,7 @@ a {
 .auth-panel h1 {
   margin: 0;
   font-size: 1.7rem;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .auth-description {
@@ -656,17 +664,19 @@ a {
 }
 
 .article-content-panel {
-  margin-top: 14px;
-  padding: 14px 16px;
+  margin-top: 16px;
+  padding: 18px 18px;
   border: 1px solid #e5e7eb;
   border-radius: 12px;
-  background: #fafafa;
+  background: #fcfcfd;
 }
 
 .article-content-text {
   color: #1f2937;
-  font-size: 0.92rem;
-  line-height: 1.75;
+  max-width: 72ch;
+  font-size: 0.96rem;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
 }
 
 .article-content-text p {
@@ -674,7 +684,7 @@ a {
 }
 
 .article-content-text p + p {
-  margin-top: 12px;
+  margin-top: 1.05em;
 }
 
 .article-content-status,
