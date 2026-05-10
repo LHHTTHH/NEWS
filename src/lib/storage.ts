@@ -6,7 +6,18 @@ const EXCLUDED_WORDS_STORAGE_KEY = "ai-news-excluded-words";
 const EXCLUDED_SOURCES_STORAGE_KEY = "ai-news-excluded-sources";
 const PERIOD_FILTER_STORAGE_KEY = "ai-news-period-filter";
 const SAVED_ARTICLES_STORAGE_KEY = "ai-news-saved-articles";
-const DEFAULT_KEYWORDS = ["OpenAI", "生成AI", "LLM"];
+const DEFAULT_KEYWORDS_STORAGE_VERSION_KEY = "ai-news-default-keywords-version";
+const DEFAULT_KEYWORDS_VERSION = "2";
+const DEFAULT_KEYWORDS = [
+  "OpenAI",
+  "ChatGPT",
+  "Gemini",
+  "Claude",
+  "Anthropic",
+  "生成AI",
+  "LLM",
+  "AIエージェント"
+];
 
 function readJson<T>(storageKey: string, fallback: T): T {
   if (typeof window === "undefined") {
@@ -41,18 +52,35 @@ function writeJson(storageKey: string, value: unknown): void {
 }
 
 export function loadKeywords(): string[] {
-  const fallbackKeywords =
+  const hasStoredKeywords =
     typeof window !== "undefined" &&
-    window.localStorage.getItem(KEYWORDS_STORAGE_KEY) === null
-      ? DEFAULT_KEYWORDS
-      : [];
-  const keywords = readJson<string[]>(KEYWORDS_STORAGE_KEY, fallbackKeywords);
-  return Array.isArray(keywords)
+    window.localStorage.getItem(KEYWORDS_STORAGE_KEY) !== null;
+  const keywords = readJson<string[]>(
+    KEYWORDS_STORAGE_KEY,
+    hasStoredKeywords ? [] : DEFAULT_KEYWORDS
+  );
+  const validKeywords = Array.isArray(keywords)
     ? keywords.filter((keyword): keyword is string => typeof keyword === "string")
     : [];
+
+  if (
+    validKeywords.length === 0 &&
+    typeof window !== "undefined" &&
+    window.localStorage.getItem(DEFAULT_KEYWORDS_STORAGE_VERSION_KEY) !==
+      DEFAULT_KEYWORDS_VERSION
+  ) {
+    window.localStorage.setItem(
+      DEFAULT_KEYWORDS_STORAGE_VERSION_KEY,
+      DEFAULT_KEYWORDS_VERSION
+    );
+    return DEFAULT_KEYWORDS;
+  }
+
+  return validKeywords;
 }
 
 export function saveKeywords(keywords: string[]): void {
+  writeJson(DEFAULT_KEYWORDS_STORAGE_VERSION_KEY, DEFAULT_KEYWORDS_VERSION);
   writeJson(KEYWORDS_STORAGE_KEY, keywords);
 }
 
