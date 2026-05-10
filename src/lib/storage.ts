@@ -6,6 +6,7 @@ const EXCLUDED_WORDS_STORAGE_KEY = "ai-news-excluded-words";
 const EXCLUDED_SOURCES_STORAGE_KEY = "ai-news-excluded-sources";
 const PERIOD_FILTER_STORAGE_KEY = "ai-news-period-filter";
 const SAVED_ARTICLES_STORAGE_KEY = "ai-news-saved-articles";
+const DEFAULT_KEYWORDS = ["OpenAI", "生成AI", "LLM"];
 
 function readJson<T>(storageKey: string, fallback: T): T {
   if (typeof window === "undefined") {
@@ -40,7 +41,12 @@ function writeJson(storageKey: string, value: unknown): void {
 }
 
 export function loadKeywords(): string[] {
-  const keywords = readJson<string[]>(KEYWORDS_STORAGE_KEY, []);
+  const fallbackKeywords =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem(KEYWORDS_STORAGE_KEY) === null
+      ? DEFAULT_KEYWORDS
+      : [];
+  const keywords = readJson<string[]>(KEYWORDS_STORAGE_KEY, fallbackKeywords);
   return Array.isArray(keywords)
     ? keywords.filter((keyword): keyword is string => typeof keyword === "string")
     : [];
