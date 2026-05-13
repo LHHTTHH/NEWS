@@ -59,7 +59,6 @@ function App() {
     const storedFilter = loadPeriodFilter();
     return isPeriodFilter(storedFilter) ? storedFilter : "24h";
   });
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [articles, setArticles] = useState<NewsGroup[]>([]);
   const [expandedArticleIds, setExpandedArticleIds] = useState<
     Record<string, boolean>
@@ -527,432 +526,244 @@ function App() {
   }
 
   return (
-    <div className="page-shell">
-      <main className="app-container">
-        <section className="panel hero-panel">
-          <div className="hero-copy">
-            <p className="eyebrow">AI News Collector</p>
-            <h1>AIニュース収集</h1>
-            <p className="hero-description">
-              登録したキーワードで記事をまとめて取得し、気になったものを後で読める最小版です。
-            </p>
-          </div>
+    <div className="app-container">
+      <aside className="sidebar">
+        <div className="brand">
+          <p className="eyebrow">Powered by AI</p>
+          <h1>AI News</h1>
+        </div>
 
+        <div className="sidebar-section">
+          <p className="sidebar-section-title">Topics & Keywords</p>
           <form className="keyword-form" onSubmit={handleSubmit}>
-            <label className="field-label" htmlFor="keyword-input">
-              キーワード
-            </label>
             <div className="keyword-form-row">
               <input
                 id="keyword-input"
                 className="text-input"
                 type="text"
-                placeholder="例: OpenAI, LLM, Anthropic"
+                placeholder="Ex: AI, GPT-4"
                 value={keywordInput}
                 onChange={(event) => setKeywordInput(event.target.value)}
               />
               <button className="primary-button" type="submit">
-                追加
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => void handleRefresh()}
-                disabled={loading || activeKeywords.length === 0}
-              >
-                再取得
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => setIsSettingsOpen((current) => !current)}
-              >
-                {isSettingsOpen ? "条件設定を閉じる" : "条件設定を開く"}
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => void handleLogout()}
-                disabled={authLoading}
-              >
-                ログアウト
+                Add
               </button>
             </div>
           </form>
 
-          {isSettingsOpen ? (
-            <div className="settings-panel">
-              <form
-                className="keyword-form settings-form"
-                onSubmit={handleExcludedWordSubmit}
-              >
-                <label className="field-label" htmlFor="excluded-word-input">
-                  除外ワード
-                </label>
-                <div className="keyword-form-row">
-                  <input
-                    id="excluded-word-input"
-                    className="text-input"
-                    type="text"
-                    placeholder="例: 求人, PR, セール"
-                    value={excludedWordInput}
-                    onChange={(event) => setExcludedWordInput(event.target.value)}
-                  />
-                  <button className="secondary-button" type="submit">
-                    追加
+          {keywords.length > 0 && (
+            <div className="filter-word-list">
+              {keywords.map((keyword) => {
+                const isEnabled = keywordEnabledMap[keyword] ?? true;
+                return (
+                  <div key={keyword} className={`keyword-item ${isEnabled ? "" : "is-disabled"}`}>
+                    <span>{keyword}</span>
+                    <button className="toggle-btn" type="button" onClick={() => handleToggleKeyword(keyword)}>
+                      {isEnabled ? "✓" : "○"}
+                    </button>
+                    <button className="remove-btn" type="button" onClick={() => handleRemoveKeyword(keyword)}>
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="sidebar-section">
+          <p className="sidebar-section-title">Exclude Words</p>
+          <form className="keyword-form" onSubmit={handleExcludedWordSubmit}>
+            <div className="keyword-form-row">
+              <input
+                id="excluded-word-input"
+                className="text-input"
+                type="text"
+                placeholder="Ex: PR, Job"
+                value={excludedWordInput}
+                onChange={(event) => setExcludedWordInput(event.target.value)}
+              />
+              <button className="secondary-button" type="submit">
+                Add
+              </button>
+            </div>
+          </form>
+          {excludedWords.length > 0 && (
+            <div className="filter-word-list">
+              {excludedWords.map((word) => (
+                <div key={word} className="keyword-item">
+                  <span>{word}</span>
+                  <button className="remove-btn" type="button" onClick={() => handleRemoveExcludedWord(word)}>
+                    ×
                   </button>
                 </div>
-              </form>
-
-              <div className="settings-grid">
-                <div className="filter-word-section">
-                  <div className="inline-section-header">
-                    <p className="field-label">登録済みキーワード</p>
-                    <span className="count-badge">
-                      有効 {activeKeywords.length}/{keywords.length}
-                    </span>
-                  </div>
-
-                  {keywords.length === 0 ? (
-                    <p className="muted-text">
-                      まだキーワードがありません。まずは1つ登録してください。
-                    </p>
-                  ) : (
-                    <div className="filter-word-list">
-                      {keywords.map((keyword) => {
-                        const isEnabled = keywordEnabledMap[keyword] ?? true;
-
-                        return (
-                          <div
-                            key={keyword}
-                            className={`filter-word-item keyword-item${
-                              isEnabled ? "" : " is-disabled"
-                            }`}
-                          >
-                            <div className="keyword-item-copy">
-                              <span className="filter-word-text">{keyword}</span>
-                              <span className="chip-action">
-                                {isEnabled ? "有効" : "無効"}
-                              </span>
-                            </div>
-                            <div className="keyword-item-actions">
-                              <button
-                                className={`compact-button ${
-                                  isEnabled ? "secondary-button" : "ghost-button"
-                                }`}
-                                type="button"
-                                onClick={() => handleToggleKeyword(keyword)}
-                              >
-                                {isEnabled ? "OFF" : "ON"}
-                              </button>
-                              <button
-                                className="ghost-button compact-button"
-                                type="button"
-                                onClick={() => handleRemoveKeyword(keyword)}
-                              >
-                                削除
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="filter-word-section">
-                  <div className="inline-section-header">
-                    <p className="field-label">登録済みの除外ワード</p>
-                    <span className="count-badge">{excludedWords.length}件</span>
-                  </div>
-
-                  {excludedWords.length === 0 ? (
-                    <p className="muted-text">除外ワードは未設定です。</p>
-                  ) : (
-                    <div className="filter-word-list">
-                      {excludedWords.map((word) => (
-                        <div key={word} className="filter-word-item">
-                          <span className="filter-word-text">{word}</span>
-                          <button
-                            className="ghost-button compact-button"
-                            type="button"
-                            onClick={() => handleRemoveExcludedWord(word)}
-                          >
-                            削除
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="filter-word-section">
-                  <div className="inline-section-header">
-                    <p className="field-label">登録済みの除外ソース</p>
-                    <span className="count-badge">{excludedSources.length}件</span>
-                  </div>
-
-                  {excludedSources.length === 0 ? (
-                    <p className="muted-text">除外ソースは未設定です。</p>
-                  ) : (
-                    <div className="source-chip-list">
-                      {excludedSources.map((sourceName) => (
-                        <div key={sourceName} className="source-chip">
-                          <span className="filter-word-text">{sourceName}</span>
-                          <button
-                            className="ghost-button compact-button"
-                            type="button"
-                            onClick={() => handleRemoveExcludedSource(sourceName)}
-                          >
-                            解除
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+              ))}
             </div>
-          ) : null}
+          )}
+        </div>
 
-          <div className="status-row">
-            <div className="status-card">
-              <span className="status-label">状態</span>
-              <span className="status-value">{loading ? "取得中..." : "待機中"}</span>
+        {excludedSources.length > 0 && (
+          <div className="sidebar-section">
+            <p className="sidebar-section-title">Excluded Sources</p>
+            <div className="filter-word-list">
+              {excludedSources.map((sourceName) => (
+                <div key={sourceName} className="keyword-item">
+                  <span>{sourceName}</span>
+                  <button className="remove-btn" type="button" onClick={() => handleRemoveExcludedSource(sourceName)}>
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="sidebar-section status-row">
+           <div className="status-card">
+              <span className="status-label">Status:</span>
+              <span className="status-value">{loading ? "Updating..." : "Ready"}</span>
             </div>
             <div className="status-card">
-              <span className="status-label">最終更新</span>
+              <span className="status-label">Last Updated:</span>
               <span className="status-value">
-                {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : "未取得"}
+                {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : "N/A"}
               </span>
             </div>
+            <button className="ghost-button" type="button" onClick={() => void handleLogout()} disabled={authLoading} style={{marginTop: '8px', width: '100%'}}>
+              Logout
+            </button>
+        </div>
+
+        {error && <p className="error-banner">{error}</p>}
+        {warning && <p className="warning-banner">{warning}</p>}
+
+      </aside>
+
+      <main className="main-content">
+        <div className="main-header">
+          <div>
+            <h2>Dashboard</h2>
+            {countBreakdownText && <p style={{color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px'}}>Excluded: {countBreakdownText}</p>}
           </div>
-
-          {error ? <p className="error-banner">{error}</p> : null}
-          {warning ? <p className="warning-banner">{warning}</p> : null}
-        </section>
-
-        <section
-          className={`content-grid${SHOW_SAVED_PANEL ? "" : " content-grid-single"}`}
-        >
-          <div className="panel">
-            <div className="section-header">
-              <div className="section-heading">
-                <p className="eyebrow">Latest</p>
-                <h2>記事一覧</h2>
-                {countBreakdownText ? (
-                  <p className="header-subtext">
-                    内訳: {countBreakdownText}
-                  </p>
-                ) : null}
-              </div>
-              <div className="section-header-actions">
-                <div className="period-filter-group" aria-label="期間フィルタ">
-                  {PERIOD_FILTER_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      className={`period-filter-button${
-                        periodFilter === option.value ? " is-active" : ""
-                      }`}
-                      type="button"
-                      onClick={() => setPeriodFilter(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="header-badges">
-                  <span className="count-badge count-badge-strong">
-                    表示 {visibleArticles.length}件
-                  </span>
-                  {excludedArticleCount > 0 ? (
-                    <span className="count-badge muted-badge">
-                      除外 {excludedArticleCount}件
-                    </span>
-                  ) : null}
-                  <span className="count-badge count-badge-soft">
-                    {activePeriodLabel}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="card-list">
-              {keywords.length === 0 ? (
-                <EmptyState
-                  title="キーワードを登録すると記事一覧が表示されます"
-                  description="Google News RSS を Vercel Functions 経由で取得します。"
-                />
-              ) : activeKeywords.length === 0 ? (
-                <EmptyState
-                  title="有効なキーワードがありません"
-                  description="登録済みキーワードを ON にすると記事一覧を再取得できます。"
-                />
-              ) : articles.length === 0 && !loading ? (
-                <EmptyState
-                  title="表示できる記事がまだありません"
-                  description="キーワードを変えるか、再取得を試してください。"
-                />
-              ) : periodFilteredArticles.length === 0 && !loading ? (
-                <EmptyState
-                  title="選択中の期間に該当する記事がありません"
-                  description="期間を広げるか、キーワードを変えて再取得してください。"
-                />
-              ) : visibleArticles.length === 0 && !loading ? (
-                <EmptyState
-                  title="除外条件で記事が表示されていません"
-                  description="除外ワードや除外ソースを減らすか、キーワードを変えて再取得してください。"
-                />
-              ) : (
-                visibleArticles.map((article) => (
-                  <article className="article-card" key={article.id}>
-                    <div className="article-card-header">
-                      <div className="article-card-main">
-                        <p className="article-meta">
-                          {article.sourceName}・{formatDateTime(article.publishedAt)}
-                        </p>
-                        <h3>{article.title}</h3>
-                      </div>
-                      <div className="article-card-actions">
-                        <button
-                          className="ghost-button compact-button article-action-button"
-                          type="button"
-                          onClick={() => void handleToggleArticleContent(article)}
-                        >
-                          {expandedArticleIds[article.id] ? "本文を閉じる" : "本文を表示"}
-                        </button>
-                        <button
-                          className="ghost-button compact-button article-action-button"
-                          type="button"
-                          onClick={() => handleAddExcludedSource(article.sourceName)}
-                        >
-                          このソースを除外
-                        </button>
-                        <button
-                          className="secondary-button compact-button article-action-button"
-                          type="button"
-                          onClick={() => handleSaveArticle(article)}
-                          disabled={isSaved(article.id)}
-                        >
-                          {isSaved(article.id) ? "保存済み" : "後で読む"}
-                        </button>
-                      </div>
-                    </div>
-
-                    <p className="summary">{article.summary}</p>
-
-                    {expandedArticleIds[article.id] ? (
-                      <div className="article-content-panel">
-                        {articleContentMap[article.id]?.status === "loading" ? (
-                          <p className="article-content-status">本文を取得中...</p>
-                        ) : null}
-
-                        {articleContentMap[article.id]?.status === "error" ? (
-                          <p className="article-content-error">
-                            {articleContentMap[article.id]?.error}
-                          </p>
-                        ) : null}
-
-                        {articleContentMap[article.id]?.status === "ready" ? (
-                          <>
-                            <div className="article-content-text">
-                              {articleContentMap[article.id]?.content
-                                ?.split(/\n{2,}/)
-                                .filter(Boolean)
-                                .map((paragraph, index) => (
-                                  <p key={`${article.id}-${index}`}>{paragraph}</p>
-                                ))}
-                            </div>
-                            {articleContentMap[article.id]?.resolvedUrl &&
-                            articleContentMap[article.id]?.resolvedUrl !==
-                              article.articleUrl ? (
-                              <p className="article-content-note">
-                                抽出元:{" "}
-                                <a
-                                  href={articleContentMap[article.id]?.resolvedUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  実際の記事URLを開く
-                                </a>
-                              </p>
-                            ) : null}
-                          </>
-                        ) : null}
-                      </div>
-                    ) : null}
-
-                    <div className="article-footer">
-                      <span className="keyword-pill">{article.keyword}</span>
-                      <a
-                        className="link-button"
-                        href={article.articleUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        元記事を開く
-                      </a>
-                    </div>
-
-                    {article.relatedLinks.length > 0 ? (
-                      <p className="related-count">
-                        関連記事 {article.relatedLinks.length} 件を同一グループにまとめています。
-                      </p>
-                    ) : null}
-                  </article>
-                ))
-              )}
-            </div>
+          <div className="header-actions">
+             <div className="period-filters">
+                {PERIOD_FILTER_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    className={`period-filter-button ${periodFilter === option.value ? "is-active" : ""}`}
+                    type="button"
+                    onClick={() => setPeriodFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+             </div>
+             <button
+                className="primary-button"
+                type="button"
+                onClick={() => void handleRefresh()}
+                disabled={loading || activeKeywords.length === 0}
+              >
+                Refresh
+             </button>
           </div>
+        </div>
 
-          {SHOW_SAVED_PANEL ? (
-            <div className="panel">
-              <div className="section-header">
-                <div>
-                  <p className="eyebrow">Saved</p>
-                  <h2>後で読む</h2>
+        <div className="bento-grid">
+          {keywords.length === 0 ? (
+            <EmptyState
+              title="Add a keyword to see the news"
+              description="Articles are fetched via Vercel Functions using Google News RSS."
+            />
+          ) : activeKeywords.length === 0 ? (
+            <EmptyState
+              title="No active keywords"
+              description="Turn on at least one keyword to view articles."
+            />
+          ) : articles.length === 0 && !loading ? (
+            <EmptyState
+              title="No articles found"
+              description="Try changing keywords or refreshing."
+            />
+          ) : periodFilteredArticles.length === 0 && !loading ? (
+            <EmptyState
+              title="No articles in the selected period"
+              description="Expand the period or refresh the feed."
+            />
+          ) : visibleArticles.length === 0 && !loading ? (
+            <EmptyState
+              title="All articles excluded"
+              description="Try reducing excluded words or sources."
+            />
+          ) : (
+            visibleArticles.map((article) => (
+              <article className="article-card" key={article.id}>
+                <div className="article-meta">
+                  <span className="source">{article.sourceName}</span>
+                  <span className="time">{formatDateTime(article.publishedAt)}</span>
                 </div>
-                <span className="count-badge">{sortedSavedArticles.length}件</span>
-              </div>
 
-              <div className="card-list">
-                {sortedSavedArticles.length === 0 ? (
-                  <EmptyState
-                    title="保存した記事はここに表示されます"
-                    description="記事一覧の「後で読む」ボタンで追加できます。"
-                  />
-                ) : (
-                  sortedSavedArticles.map((article) => (
-                    <article className="article-card compact-card" key={article.id}>
-                      <p className="article-meta">
-                        保存日時: {formatDateTime(article.savedAt)}
-                      </p>
-                      <h3>{article.title}</h3>
-                      <p className="summary">{article.summary}</p>
-                      <div className="article-footer">
-                        <a
-                          className="link-button"
-                          href={article.articleUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          元記事を開く
-                        </a>
-                        <button
-                          className="ghost-button"
-                          type="button"
-                          onClick={() => handleRemoveSavedArticle(article.id)}
-                        >
-                          削除
-                        </button>
-                      </div>
-                    </article>
-                  ))
+                <h3>{article.title}</h3>
+
+                {(!expandedArticleIds[article.id] && article.summary) && (
+                   <p className="article-summary">{article.summary}</p>
                 )}
-              </div>
-            </div>
-          ) : null}
-        </section>
+
+                {expandedArticleIds[article.id] && (
+                  <div className="article-content-panel">
+                    {articleContentMap[article.id]?.status === "loading" && (
+                      <p className="article-content-text" style={{color: 'var(--accent-blue)'}}>Loading article content...</p>
+                    )}
+                    {articleContentMap[article.id]?.status === "error" && (
+                      <p className="article-content-text" style={{color: 'var(--danger)'}}>{articleContentMap[article.id]?.error}</p>
+                    )}
+                    {articleContentMap[article.id]?.status === "ready" && (
+                      <div className="article-content-text">
+                        {articleContentMap[article.id]?.content?.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => (
+                          <p key={`${article.id}-${index}`}>{paragraph}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="article-actions">
+                  <span className="keyword-pill">{article.keyword}</span>
+                  <div className="card-icon-buttons">
+                    <button className="icon-button" type="button" onClick={() => void handleToggleArticleContent(article)} title="Toggle Content">
+                      {expandedArticleIds[article.id] ? "Collapse" : "Read"}
+                    </button>
+                    <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="Open Original">
+                      Link
+                    </a>
+                    <button className="icon-button" type="button" onClick={() => handleSaveArticle(article)} disabled={isSaved(article.id)} title={isSaved(article.id) ? "Saved" : "Save for later"}>
+                      {isSaved(article.id) ? "★" : "☆"}
+                    </button>
+                    <button className="icon-button" type="button" onClick={() => handleAddExcludedSource(article.sourceName)} title="Exclude Source">
+                      🚫
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))
+          )}
+
+          {SHOW_SAVED_PANEL && sortedSavedArticles.length > 0 && (
+             sortedSavedArticles.map((article) => (
+               <article className="article-card" key={`saved-${article.id}`} style={{border: '1px solid var(--accent-purple)'}}>
+                  <div className="article-meta">
+                    <span className="source" style={{color: 'var(--accent-purple)'}}>Saved</span>
+                    <span className="time">{formatDateTime(article.savedAt)}</span>
+                  </div>
+                  <h3>{article.title}</h3>
+                  <div className="article-actions">
+                    <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer">Link</a>
+                    <button className="icon-button" style={{color: 'var(--danger)'}} type="button" onClick={() => handleRemoveSavedArticle(article.id)}>Remove</button>
+                  </div>
+               </article>
+             ))
+          )}
+        </div>
       </main>
     </div>
   );
@@ -981,55 +792,54 @@ function AuthScreen({
   onSubmit
 }: AuthScreenProps) {
   return (
-    <div className="page-shell auth-page-shell">
-      <main className="auth-container">
-        <section className="panel auth-panel">
-          <p className="eyebrow">Private News</p>
-          <h1>AIニュース収集</h1>
-          <p className="auth-description">
-            パスワードを入力すると、登録済みキーワードのニュースを表示できます。
-          </p>
+    <div className="auth-page-shell">
+      <div className="auth-panel">
+        <p className="eyebrow" style={{marginBottom: '8px', color: 'var(--text-secondary)'}}>Private News</p>
+        <h1>AI News Collector</h1>
+        <p className="auth-description">
+          Enter your password to access the modern news dashboard.
+        </p>
 
-          {authStatus === "checking" ? (
-            <p className="muted-text">ログイン状態を確認しています...</p>
-          ) : (
-            <form className="auth-form" autoComplete="on" onSubmit={onSubmit}>
-              <input
-                className="auth-username-input"
-                type="text"
-                name="username"
-                autoComplete="username"
-                value="news"
-                readOnly
-                tabIndex={-1}
-                aria-hidden="true"
-              />
-              <label className="field-label" htmlFor="auth-password">
-                パスワード
-              </label>
-              <input
-                id="auth-password"
-                className="text-input"
-                type="password"
-                name="password"
-                autoComplete="current-password"
-                value={authPassword}
-                onChange={(event) => onPasswordChange(event.target.value)}
-                onInput={(event) => onPasswordChange(event.currentTarget.value)}
-              />
-              <button
-                className="primary-button auth-submit-button"
-                type="submit"
-                disabled={authLoading}
-              >
-                {authLoading ? "確認中..." : "開く"}
-              </button>
-            </form>
-          )}
+        {authStatus === "checking" ? (
+          <p className="muted-text">Checking authentication...</p>
+        ) : (
+          <form className="auth-form" autoComplete="on" onSubmit={onSubmit}>
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              value="news"
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+              style={{position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', border: 0, clip: 'rect(0 0 0 0)'}}
+            />
+            <label className="field-label" htmlFor="auth-password" style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>
+              Password
+            </label>
+            <input
+              id="auth-password"
+              className="text-input"
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={authPassword}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              onInput={(event) => onPasswordChange(event.currentTarget.value)}
+            />
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={authLoading}
+              style={{marginTop: '8px'}}
+            >
+              {authLoading ? "Checking..." : "Unlock"}
+            </button>
+          </form>
+        )}
 
-          {authError ? <p className="error-banner">{authError}</p> : null}
-        </section>
-      </main>
+        {authError ? <p className="error-banner" style={{marginTop: '16px'}}>{authError}</p> : null}
+      </div>
     </div>
   );
 }
