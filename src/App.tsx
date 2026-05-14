@@ -26,13 +26,16 @@ import type { NewsGroup, SavedArticle } from "./types";
 
 type PeriodFilter = "24h" | "3d" | "7d";
 type AuthStatus = "checking" | "authenticated" | "unauthenticated";
+type ActiveTab =
+  | { type: "all" }
+  | { type: "keyword"; keyword: string }
+  | { type: "saved" };
 
 const PERIOD_FILTER_OPTIONS: Array<{ value: PeriodFilter; label: string; days: number }> = [
   { value: "24h", label: "24時間以内", days: 1 },
   { value: "3d", label: "3日以内", days: 3 },
   { value: "7d", label: "7日以内", days: 7 }
 ];
-const SHOW_SAVED_PANEL = false;
 
 type ArticleContentState = {
   status: "idle" | "loading" | "ready" | "error";
@@ -76,6 +79,20 @@ function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<ActiveTab>({ type: "all" });
+
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, [isMobileMenuOpen]);
 
   useEffect(() => {
     let active = true;
@@ -203,6 +220,14 @@ function App() {
   const activeKeywords = keywords.filter(
     (keyword) => keywordEnabledMap[keyword] ?? true
   );
+  const activeKeywordSignature = activeKeywords.join("\u0000");
+
+  useEffect(() => {
+    if (activeTab.type === "keyword" && !activeKeywords.includes(activeTab.keyword)) {
+      setActiveTab({ type: "all" });
+    }
+  }, [activeTab, activeKeywordSignature]);
+
   const sortedSavedArticles = [...savedArticles].sort(
     (left, right) =>
       new Date(right.savedAt).getTime() - new Date(left.savedAt).getTime()
@@ -247,6 +272,10 @@ function App() {
   const activePeriodLabel =
     PERIOD_FILTER_OPTIONS.find((option) => option.value === periodFilter)?.label ??
     "24時間以内";
+
+  const tabFilteredArticles = visibleArticles.filter(
+    (article) => activeTab.type !== "keyword" || article.keyword === activeTab.keyword
+  );
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -527,7 +556,34 @@ function App() {
 
   return (
     <div className="app-container">
-      <aside className="sidebar">
+      {/* Mobile Header */}
+      <div className="mobile-header">
+        <div className="brand-small">
+          <h2>AI News</h2>
+        </div>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="Open filters menu"
+          onClick={() => setIsMobileMenuOpen(true)}
+        >
+          ☰
+        </button>
+      </div>
+
+      {isMobileMenuOpen && (
+        <div className="mobile-overlay" onClick={() => setIsMobileMenuOpen(false)}></div>
+      )}
+
+      <aside className={`sidebar ${isMobileMenuOpen ? "is-open" : ""}`}>
+        <button
+          className="mobile-close-btn"
+          type="button"
+          aria-label="Close filters menu"
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          ×
+        </button>
         <div className="brand">
           <p className="eyebrow">Powered by AI</p>
           <h1>AI News</h1>
@@ -669,99 +725,133 @@ function App() {
           </div>
         </div>
 
+        <div className="tab-bar">
+          <button
+            className={`tab-item ${activeTab.type === "all" ? "is-active" : ""}`}
+            onClick={() => setActiveTab({ type: "all" })}
+          >
+            All News
+          </button>
+          {activeKeywords.map(keyword => (
+            <button
+              key={`tab-${keyword}`}
+              className={`tab-item ${
+                activeTab.type === "keyword" && activeTab.keyword === keyword ? "is-active" : ""
+              }`}
+              onClick={() => setActiveTab({ type: "keyword", keyword })}
+            >
+              {keyword}
+            </button>
+          ))}
+          <button
+            className={`tab-item ${activeTab.type === "saved" ? "is-active" : ""}`}
+            onClick={() => setActiveTab({ type: "saved" })}
+            style={{marginLeft: "auto"}}
+          >
+            Saved ({savedArticles.length})
+          </button>
+        </div>
+
         <div className="bento-grid">
-          {keywords.length === 0 ? (
-            <EmptyState
-              title="Add a keyword to see the news"
-              description="Articles are fetched via Vercel Functions using Google News RSS."
-            />
-          ) : activeKeywords.length === 0 ? (
-            <EmptyState
-              title="No active keywords"
-              description="Turn on at least one keyword to view articles."
-            />
-          ) : articles.length === 0 && !loading ? (
-            <EmptyState
-              title="No articles found"
-              description="Try changing keywords or refreshing."
-            />
-          ) : periodFilteredArticles.length === 0 && !loading ? (
-            <EmptyState
-              title="No articles in the selected period"
-              description="Expand the period or refresh the feed."
-            />
-          ) : visibleArticles.length === 0 && !loading ? (
-            <EmptyState
-              title="All articles excluded"
-              description="Try reducing excluded words or sources."
-            />
+          {activeTab.type === "saved" ? (
+             sortedSavedArticles.length === 0 ? (
+               <EmptyState
+                 title="No saved articles"
+                 description="Click the star icon on any article to read it later."
+               />
+             ) : (
+               sortedSavedArticles.map((article) => (
+                 <article className="article-card" key={`saved-${article.id}`} style={{border: '1px solid var(--accent-purple)'}}>
+                    <div className="article-meta">
+                      <span className="source" style={{color: 'var(--accent-purple)'}}>Saved</span>
+                      <span className="time">{formatDateTime(article.savedAt)}</span>
+                    </div>
+                    <h3>{article.title}</h3>
+                    <div className="article-actions">
+                      <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="Open Original">Link</a>
+                      <button className="icon-button" style={{color: 'var(--danger)'}} type="button" onClick={() => handleRemoveSavedArticle(article.id)} title="Remove from saved">Remove</button>
+                    </div>
+                 </article>
+               ))
+             )
           ) : (
-            visibleArticles.map((article) => (
-              <article className="article-card" key={article.id}>
-                <div className="article-meta">
-                  <span className="source">{article.sourceName}</span>
-                  <span className="time">{formatDateTime(article.publishedAt)}</span>
-                </div>
-
-                <h3>{article.title}</h3>
-
-                {(!expandedArticleIds[article.id] && article.summary) && (
-                   <p className="article-summary">{article.summary}</p>
-                )}
-
-                {expandedArticleIds[article.id] && (
-                  <div className="article-content-panel">
-                    {articleContentMap[article.id]?.status === "loading" && (
-                      <p className="article-content-text" style={{color: 'var(--accent-blue)'}}>Loading article content...</p>
-                    )}
-                    {articleContentMap[article.id]?.status === "error" && (
-                      <p className="article-content-text" style={{color: 'var(--danger)'}}>{articleContentMap[article.id]?.error}</p>
-                    )}
-                    {articleContentMap[article.id]?.status === "ready" && (
-                      <div className="article-content-text">
-                        {articleContentMap[article.id]?.content?.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => (
-                          <p key={`${article.id}-${index}`}>{paragraph}</p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="article-actions">
-                  <span className="keyword-pill">{article.keyword}</span>
-                  <div className="card-icon-buttons">
-                    <button className="icon-button" type="button" onClick={() => void handleToggleArticleContent(article)} title="Toggle Content">
-                      {expandedArticleIds[article.id] ? "Collapse" : "Read"}
-                    </button>
-                    <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="Open Original">
-                      Link
-                    </a>
-                    <button className="icon-button" type="button" onClick={() => handleSaveArticle(article)} disabled={isSaved(article.id)} title={isSaved(article.id) ? "Saved" : "Save for later"}>
-                      {isSaved(article.id) ? "★" : "☆"}
-                    </button>
-                    <button className="icon-button" type="button" onClick={() => handleAddExcludedSource(article.sourceName)} title="Exclude Source">
-                      🚫
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))
-          )}
-
-          {SHOW_SAVED_PANEL && sortedSavedArticles.length > 0 && (
-             sortedSavedArticles.map((article) => (
-               <article className="article-card" key={`saved-${article.id}`} style={{border: '1px solid var(--accent-purple)'}}>
+             keywords.length === 0 ? (
+              <EmptyState
+                title="Add a keyword to see the news"
+                description="Articles are fetched via Vercel Functions using Google News RSS."
+              />
+            ) : activeKeywords.length === 0 ? (
+              <EmptyState
+                title="No active keywords"
+                description="Turn on at least one keyword to view articles."
+              />
+            ) : articles.length === 0 && !loading ? (
+              <EmptyState
+                title="No articles found"
+                description="Try changing keywords or refreshing."
+              />
+            ) : periodFilteredArticles.length === 0 && !loading ? (
+              <EmptyState
+                title="No articles in the selected period"
+                description="Expand the period or refresh the feed."
+              />
+            ) : tabFilteredArticles.length === 0 && !loading ? (
+              <EmptyState
+                title="All articles excluded or no articles for this tab"
+                description="Try reducing excluded words or switch tabs."
+              />
+            ) : (
+              tabFilteredArticles.map((article) => (
+                <article className="article-card" key={article.id}>
                   <div className="article-meta">
-                    <span className="source" style={{color: 'var(--accent-purple)'}}>Saved</span>
-                    <span className="time">{formatDateTime(article.savedAt)}</span>
+                    <span className="source">{article.sourceName}</span>
+                    <span className="time">{formatDateTime(article.publishedAt)}</span>
                   </div>
+
                   <h3>{article.title}</h3>
+
+                  {(!expandedArticleIds[article.id] && article.summary) && (
+                     <p className="article-summary">{article.summary}</p>
+                  )}
+
+                  {expandedArticleIds[article.id] && (
+                    <div className="article-content-panel">
+                      {articleContentMap[article.id]?.status === "loading" && (
+                        <p className="article-content-text" style={{color: 'var(--accent-blue)'}}>Loading article content...</p>
+                      )}
+                      {articleContentMap[article.id]?.status === "error" && (
+                        <p className="article-content-text" style={{color: 'var(--danger)'}}>{articleContentMap[article.id]?.error}</p>
+                      )}
+                      {articleContentMap[article.id]?.status === "ready" && (
+                        <div className="article-content-text">
+                          {articleContentMap[article.id]?.content?.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => (
+                            <p key={`${article.id}-${index}`}>{paragraph}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="article-actions">
-                    <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer">Link</a>
-                    <button className="icon-button" style={{color: 'var(--danger)'}} type="button" onClick={() => handleRemoveSavedArticle(article.id)}>Remove</button>
+                    <span className="keyword-pill">{article.keyword}</span>
+                    <div className="card-icon-buttons">
+                      <button className="icon-button" type="button" onClick={() => void handleToggleArticleContent(article)} title="Toggle Content">
+                        {expandedArticleIds[article.id] ? "Collapse" : "Read"}
+                      </button>
+                      <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="Open Original">
+                        Link
+                      </a>
+                      <button className="icon-button" type="button" onClick={() => handleSaveArticle(article)} disabled={isSaved(article.id)} title={isSaved(article.id) ? "Saved" : "Save for later"}>
+                        {isSaved(article.id) ? "★" : "☆"}
+                      </button>
+                      <button className="icon-button" type="button" onClick={() => handleAddExcludedSource(article.sourceName)} title="Exclude Source">
+                        🚫
+                      </button>
+                    </div>
                   </div>
-               </article>
-             ))
+                </article>
+              ))
+            )
           )}
         </div>
       </main>
