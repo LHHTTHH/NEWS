@@ -411,7 +411,7 @@ function groupArticles(articles: FlatArticle[]): NewsGroup[] {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setJsonHeaders(res);
-  res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+  res.setHeader("Cache-Control", "private, no-store, max-age=0");
 
   if (!isGetRequest(req.method)) {
     res.status(405).json({
