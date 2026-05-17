@@ -174,10 +174,18 @@ function parseCookies(cookieHeader?: string | string[]): Record<string, string> 
 
         return [
           cookie.slice(0, separatorIndex),
-          decodeURIComponent(cookie.slice(separatorIndex + 1))
+          decodeCookieValue(cookie.slice(separatorIndex + 1))
         ];
       })
   );
+}
+
+function decodeCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return "";
+  }
 }
 
 function serializeCookie(

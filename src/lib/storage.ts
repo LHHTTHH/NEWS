@@ -1,4 +1,9 @@
 import type { SavedArticle } from "../types";
+import {
+  createEmptyReadingState,
+  normalizeReadingState
+} from "./reading";
+import type { ReadingState } from "./reading";
 
 const KEYWORDS_STORAGE_KEY = "ai-news-keywords";
 const KEYWORD_ENABLED_MAP_STORAGE_KEY = "ai-news-keyword-enabled-map";
@@ -6,6 +11,7 @@ const EXCLUDED_WORDS_STORAGE_KEY = "ai-news-excluded-words";
 const EXCLUDED_SOURCES_STORAGE_KEY = "ai-news-excluded-sources";
 const PERIOD_FILTER_STORAGE_KEY = "ai-news-period-filter";
 const SAVED_ARTICLES_STORAGE_KEY = "ai-news-saved-articles";
+const READING_STATE_STORAGE_KEY = "ai-news-reading-state-v1";
 const DEFAULT_KEYWORDS_STORAGE_VERSION_KEY = "ai-news-default-keywords-version";
 const DEFAULT_KEYWORDS_VERSION = "2";
 const DEFAULT_KEYWORDS = [
@@ -64,6 +70,7 @@ export function loadKeywords(): string[] {
     : [];
 
   if (
+    !hasStoredKeywords &&
     validKeywords.length === 0 &&
     typeof window !== "undefined" &&
     window.localStorage.getItem(DEFAULT_KEYWORDS_STORAGE_VERSION_KEY) !==
@@ -141,7 +148,15 @@ export function savePeriodFilter(periodFilter: string): void {
 export function loadSavedArticles(): SavedArticle[] {
   const articles = readJson<SavedArticle[]>(SAVED_ARTICLES_STORAGE_KEY, []);
   return Array.isArray(articles)
-    ? articles.filter((article): article is SavedArticle => isSavedArticle(article))
+    ? articles
+        .filter((article): article is SavedArticle => isSavedArticle(article))
+        .map((article) => ({
+          ...article,
+          groupSize:
+            typeof article.groupSize === "number"
+              ? article.groupSize
+              : article.relatedLinks.length + 1
+        }))
     : [];
 }
 
@@ -149,7 +164,17 @@ export function saveSavedArticles(articles: SavedArticle[]): void {
   writeJson(SAVED_ARTICLES_STORAGE_KEY, articles);
 }
 
-function isSavedArticle(value: unknown): value is SavedArticle {
+export function loadReadingState(): ReadingState {
+  return normalizeReadingState(
+    readJson<unknown>(READING_STATE_STORAGE_KEY, createEmptyReadingState())
+  );
+}
+
+export function saveReadingState(readingState: ReadingState): void {
+  writeJson(READING_STATE_STORAGE_KEY, normalizeReadingState(readingState));
+}
+
+export function isSavedArticle(value: unknown): value is SavedArticle {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -160,10 +185,50 @@ function isSavedArticle(value: unknown): value is SavedArticle {
     typeof article.title === "string" &&
     typeof article.sourceName === "string" &&
     typeof article.publishedAt === "string" &&
+    isValidDateText(article.publishedAt) &&
     typeof article.summary === "string" &&
     typeof article.articleUrl === "string" &&
+    isSafeHttpUrl(article.articleUrl) &&
     typeof article.keyword === "string" &&
     typeof article.savedAt === "string" &&
-    Array.isArray(article.relatedLinks)
+    isValidDateText(article.savedAt) &&
+    Array.isArray(article.relatedLinks) &&
+    article.relatedLinks.every((relatedLink) => isRelatedLink(relatedLink)) &&
+    (article.groupSize === undefined ||
+      (Number.isInteger(article.groupSize) && article.groupSize >= 1))
   );
+}
+
+function isRelatedLink(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const relatedLink = value as Record<string, unknown>;
+  return (
+    typeof relatedLink.title === "string" &&
+    typeof relatedLink.sourceName === "string" &&
+    typeof relatedLink.publishedAt === "string" &&
+    isValidDateText(relatedLink.publishedAt) &&
+    typeof relatedLink.articleUrl === "string" &&
+    isSafeHttpUrl(relatedLink.articleUrl) &&
+    typeof relatedLink.keyword === "string"
+  );
+}
+
+function isSafeHttpUrl(value: string): boolean {
+  try {
+    const parsedUrl = new URL(value);
+    return (
+      (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") &&
+      !parsedUrl.username &&
+      !parsedUrl.password
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isValidDateText(value: string): boolean {
+  return !Number.isNaN(new Date(value).getTime());
 }

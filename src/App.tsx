@@ -14,28 +14,42 @@ import {
   loadKeywordEnabledMap,
   loadKeywords,
   loadPeriodFilter,
+  loadReadingState,
   loadSavedArticles,
   saveExcludedSources,
   saveExcludedWords,
   saveKeywordEnabledMap,
   saveKeywords,
   savePeriodFilter,
+  saveReadingState,
   saveSavedArticles
 } from "./lib/storage";
+import {
+  PERIOD_FILTER_OPTIONS,
+  buildPartialFailureMessage,
+  filterNewsArticles,
+  isPeriodFilter,
+  normalizeSourceName
+} from "./lib/news";
+import type { PeriodFilter, ReadingView } from "./lib/news";
+import {
+  filterArticlesByReadingView,
+  getReadingCounts,
+  isArticleNewSince,
+  isArticleRead,
+  markArticleUnread,
+  markArticlesRead,
+  markSessionOpened,
+  mergeSeenArticles
+} from "./lib/reading";
+import type { ReadingState } from "./lib/reading";
 import type { NewsGroup, SavedArticle } from "./types";
 
-type PeriodFilter = "24h" | "3d" | "7d";
 type AuthStatus = "checking" | "authenticated" | "unauthenticated";
 type ActiveTab =
   | { type: "all" }
   | { type: "keyword"; keyword: string }
   | { type: "saved" };
-
-const PERIOD_FILTER_OPTIONS: Array<{ value: PeriodFilter; label: string; days: number }> = [
-  { value: "24h", label: "24時間以内", days: 1 },
-  { value: "3d", label: "3日以内", days: 3 },
-  { value: "7d", label: "7日以内", days: 7 }
-];
 
 type ArticleContentState = {
   status: "idle" | "loading" | "ready" | "error";
@@ -45,6 +59,7 @@ type ArticleContentState = {
 };
 
 function App() {
+  const [initialReadingState] = useState<ReadingState>(() => loadReadingState());
   const [keywords, setKeywords] = useState<string[]>(() => loadKeywords());
   const [keywordEnabledMap, setKeywordEnabledMap] = useState<
     Record<string, boolean>
@@ -57,6 +72,12 @@ function App() {
   );
   const [savedArticles, setSavedArticles] = useState<SavedArticle[]>(() =>
     loadSavedArticles()
+  );
+  const [readingState, setReadingState] = useState<ReadingState>(
+    initialReadingState
+  );
+  const [previousSessionAt] = useState<string | null>(
+    initialReadingState.lastOpenedAt
   );
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>(() => {
     const storedFilter = loadPeriodFilter();
@@ -82,6 +103,7 @@ function App() {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>({ type: "all" });
+  const [readingView, setReadingView] = useState<ReadingView>("unread");
 
   useEffect(() => {
     if (isMobileMenuOpen) {
@@ -155,6 +177,20 @@ function App() {
   }, [savedArticles]);
 
   useEffect(() => {
+    saveReadingState(readingState);
+  }, [readingState]);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated") {
+      return;
+    }
+
+    setReadingState((currentState) =>
+      markSessionOpened(currentState, new Date().toISOString())
+    );
+  }, [authStatus]);
+
+  useEffect(() => {
     if (authStatus !== "authenticated") {
       return;
     }
@@ -186,6 +222,9 @@ function App() {
         }
 
         setArticles(newsResponse.articles);
+        setReadingState((currentState) =>
+          mergeSeenArticles(currentState, newsResponse.articles)
+        );
         setWarning(buildPartialFailureMessage(newsResponse.partialFailureKeywords));
         setLastUpdatedAt(new Date().toISOString());
       } catch (loadError) {
@@ -232,36 +271,17 @@ function App() {
     (left, right) =>
       new Date(right.savedAt).getTime() - new Date(left.savedAt).getTime()
   );
-  const periodFilteredArticles = articles.filter((article) =>
-    isArticleInPeriod(article.publishedAt, periodFilter)
-  );
-  const sourceFilteredArticles = periodFilteredArticles.filter((article) => {
-    const normalizedSourceName = normalizeSourceName(article.sourceName);
-
-    if (
-      excludedSources.some(
-        (sourceName) => normalizeSourceName(sourceName) === normalizedSourceName
-      )
-    ) {
-      return false;
-    }
-
-    return true;
+  const {
+    periodFilteredArticles,
+    visibleArticles,
+    periodExcludedCount,
+    sourceExcludedCount,
+    wordExcludedCount
+  } = filterNewsArticles(articles, {
+    excludedSources,
+    excludedWords,
+    periodFilter
   });
-  const visibleArticles = sourceFilteredArticles.filter((article) => {
-    if (excludedWords.length === 0) {
-      return true;
-    }
-
-    const haystack = `${article.title} ${article.summary}`.toLowerCase();
-    return !excludedWords.some((word) => haystack.includes(word.toLowerCase()));
-  });
-  const periodExcludedCount = articles.length - periodFilteredArticles.length;
-  const sourceExcludedCount =
-    periodFilteredArticles.length - sourceFilteredArticles.length;
-  const wordExcludedCount = sourceFilteredArticles.length - visibleArticles.length;
-  const excludedArticleCount =
-    sourceExcludedCount + wordExcludedCount;
   const countBreakdownText = [
     periodExcludedCount > 0 ? `期間で${periodExcludedCount}件` : null,
     sourceExcludedCount > 0 ? `ソース除外で${sourceExcludedCount}件` : null,
@@ -275,6 +295,20 @@ function App() {
 
   const tabFilteredArticles = visibleArticles.filter(
     (article) => activeTab.type !== "keyword" || article.keyword === activeTab.keyword
+  );
+  const readingCounts = getReadingCounts(
+    tabFilteredArticles,
+    readingState,
+    previousSessionAt
+  );
+  const readingFilteredArticles = filterArticlesByReadingView(
+    tabFilteredArticles,
+    readingState,
+    readingView,
+    previousSessionAt
+  );
+  const firstUnreadArticle = readingFilteredArticles.find(
+    (article) => !isArticleRead(readingState, article.id)
   );
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -451,6 +485,9 @@ function App() {
     try {
       const newsResponse = await fetchNews(activeKeywords);
       setArticles(newsResponse.articles);
+      setReadingState((currentState) =>
+        mergeSeenArticles(currentState, newsResponse.articles)
+      );
       setWarning(buildPartialFailureMessage(newsResponse.partialFailureKeywords));
       setLastUpdatedAt(new Date().toISOString());
     } catch (loadError) {
@@ -471,7 +508,13 @@ function App() {
 
   function handleSaveArticle(article: NewsGroup) {
     setSavedArticles((currentArticles) => {
-      if (currentArticles.some((savedArticle) => savedArticle.id === article.id)) {
+      if (
+        currentArticles.some(
+          (savedArticle) =>
+            savedArticle.id === article.id ||
+            savedArticle.articleUrl === article.articleUrl
+        )
+      ) {
         return currentArticles;
       }
 
@@ -493,6 +536,37 @@ function App() {
 
   function isSaved(articleId: string): boolean {
     return savedArticles.some((article) => article.id === articleId);
+  }
+
+  function handleMarkArticleRead(articleId: string) {
+    setReadingState((currentState) => markArticlesRead(currentState, [articleId]));
+  }
+
+  function handleToggleRead(articleId: string) {
+    setReadingState((currentState) =>
+      isArticleRead(currentState, articleId)
+        ? markArticleUnread(currentState, articleId)
+        : markArticlesRead(currentState, [articleId])
+    );
+  }
+
+  function handleMarkVisibleRead() {
+    setReadingState((currentState) =>
+      markArticlesRead(
+        currentState,
+        readingFilteredArticles.map((article) => article.id)
+      )
+    );
+  }
+
+  function handleJumpToFirstUnread() {
+    if (!firstUnreadArticle) {
+      return;
+    }
+
+    document
+      .getElementById(toArticleElementId(firstUnreadArticle.id))
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
@@ -699,6 +773,10 @@ function App() {
         <div className="main-header">
           <div>
             <h2>Dashboard</h2>
+            <p className="header-subtitle">
+              {activePeriodLabel}
+              {previousSessionAt ? ` / 前回閲覧 ${formatDateTime(previousSessionAt)}` : ""}
+            </p>
             {countBreakdownText && <p style={{color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px'}}>Excluded: {countBreakdownText}</p>}
           </div>
           <div className="header-actions">
@@ -752,6 +830,52 @@ function App() {
           </button>
         </div>
 
+        {activeTab.type !== "saved" && (
+          <div className="reading-toolbar">
+            <div className="reading-filters" role="tablist" aria-label="Reading filters">
+              <button
+                className={`reading-filter-button ${readingView === "new" ? "is-active" : ""}`}
+                type="button"
+                onClick={() => setReadingView("new")}
+              >
+                新着 {readingCounts.newCount}
+              </button>
+              <button
+                className={`reading-filter-button ${readingView === "unread" ? "is-active" : ""}`}
+                type="button"
+                onClick={() => setReadingView("unread")}
+              >
+                未読 {readingCounts.unreadCount}
+              </button>
+              <button
+                className={`reading-filter-button ${readingView === "all" ? "is-active" : ""}`}
+                type="button"
+                onClick={() => setReadingView("all")}
+              >
+                すべて {tabFilteredArticles.length}
+              </button>
+            </div>
+            <div className="reading-actions">
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                onClick={handleJumpToFirstUnread}
+                disabled={!firstUnreadArticle}
+              >
+                未読へ
+              </button>
+              <button
+                className="ghost-button compact-button"
+                type="button"
+                onClick={handleMarkVisibleRead}
+                disabled={readingFilteredArticles.length === 0}
+              >
+                表示分を既読
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="bento-grid">
           {activeTab.type === "saved" ? (
              sortedSavedArticles.length === 0 ? (
@@ -785,6 +909,11 @@ function App() {
                 title="No active keywords"
                 description="Turn on at least one keyword to view articles."
               />
+            ) : loading && articles.length === 0 ? (
+              <EmptyState
+                title="Loading news"
+                description="Fetching the latest articles..."
+              />
             ) : articles.length === 0 && !loading ? (
               <EmptyState
                 title="No articles found"
@@ -800,12 +929,43 @@ function App() {
                 title="All articles excluded or no articles for this tab"
                 description="Try reducing excluded words or switch tabs."
               />
+            ) : readingFilteredArticles.length === 0 && !loading ? (
+              <EmptyState
+                title={readingView === "new" ? "No new articles" : "No unread articles"}
+                description={
+                  readingView === "new"
+                    ? "No articles were first seen after your previous visit."
+                    : "Switch to All to revisit articles you have already read."
+                }
+              />
             ) : (
-              tabFilteredArticles.map((article) => (
-                <article className="article-card" key={article.id}>
+              readingFilteredArticles.map((article) => {
+                const articleRead = isArticleRead(readingState, article.id);
+                const articleNew = isArticleNewSince(
+                  readingState,
+                  article.id,
+                  previousSessionAt
+                );
+
+                return (
+                <article
+                  id={toArticleElementId(article.id)}
+                  className={`article-card ${articleRead ? "is-read" : ""}`}
+                  key={article.id}
+                >
                   <div className="article-meta">
                     <span className="source">{article.sourceName}</span>
                     <span className="time">{formatDateTime(article.publishedAt)}</span>
+                  </div>
+
+                  <div className="article-badges">
+                    {articleNew && <span className="status-pill is-new">New</span>}
+                    {!articleRead && <span className="status-pill">Unread</span>}
+                    {article.groupSize > 1 && (
+                      <span className="status-pill is-grouped">
+                        +{article.groupSize - 1} related
+                      </span>
+                    )}
                   </div>
 
                   <h3>{article.title}</h3>
@@ -832,15 +992,38 @@ function App() {
                     </div>
                   )}
 
+                  {article.relatedLinks.length > 0 && (
+                    <details className="related-links">
+                      <summary>Related coverage ({article.relatedLinks.length})</summary>
+                      <ul>
+                        {article.relatedLinks.map((relatedArticle) => (
+                          <li key={`${article.id}-${relatedArticle.articleUrl}`}>
+                            <a
+                              href={relatedArticle.articleUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={() => handleMarkArticleRead(article.id)}
+                            >
+                              {relatedArticle.sourceName}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+
                   <div className="article-actions">
                     <span className="keyword-pill">{article.keyword}</span>
                     <div className="card-icon-buttons">
-                      <button className="icon-button" type="button" onClick={() => void handleToggleArticleContent(article)} title="Toggle Content">
+                      <button className="icon-button" type="button" onClick={() => { handleMarkArticleRead(article.id); void handleToggleArticleContent(article); }} title="Toggle Content">
                         {expandedArticleIds[article.id] ? "Collapse" : "Read"}
                       </button>
-                      <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="Open Original">
+                      <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="Open Original" onClick={() => handleMarkArticleRead(article.id)}>
                         Link
                       </a>
+                      <button className="icon-button" type="button" onClick={() => handleToggleRead(article.id)} title={articleRead ? "Mark unread" : "Mark read"}>
+                        {articleRead ? "Unread" : "Done"}
+                      </button>
                       <button className="icon-button" type="button" onClick={() => handleSaveArticle(article)} disabled={isSaved(article.id)} title={isSaved(article.id) ? "Saved" : "Save for later"}>
                         {isSaved(article.id) ? "★" : "☆"}
                       </button>
@@ -850,7 +1033,8 @@ function App() {
                     </div>
                   </div>
                 </article>
-              ))
+                );
+              })
             )
           )}
         </div>
@@ -943,38 +1127,8 @@ function EmptyState({ title, description }: EmptyStateProps) {
   );
 }
 
-function isPeriodFilter(value: string): value is PeriodFilter {
-  return PERIOD_FILTER_OPTIONS.some((option) => option.value === value);
-}
-
-function isArticleInPeriod(publishedAt: string, periodFilter: PeriodFilter): boolean {
-  const publishedAtTime = new Date(publishedAt).getTime();
-  if (Number.isNaN(publishedAtTime)) {
-    return false;
-  }
-
-  const selectedOption = PERIOD_FILTER_OPTIONS.find(
-    (option) => option.value === periodFilter
-  );
-
-  if (!selectedOption) {
-    return true;
-  }
-
-  const cutoffTime = Date.now() - selectedOption.days * 24 * 60 * 60 * 1000;
-  return publishedAtTime >= cutoffTime;
-}
-
-function normalizeSourceName(sourceName: string): string {
-  return sourceName.trim().toLowerCase();
-}
-
-function buildPartialFailureMessage(failedKeywords?: string[]): string | null {
-  if (!failedKeywords || failedKeywords.length === 0) {
-    return null;
-  }
-
-  return `一部キーワードの取得に失敗しました: ${failedKeywords.join(", ")}`;
+function toArticleElementId(articleId: string): string {
+  return `article-${encodeURIComponent(articleId)}`;
 }
 
 export default App;

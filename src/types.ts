@@ -15,6 +15,7 @@ export type NewsGroup = {
   articleUrl: string;
   keyword: string;
   relatedLinks: RelatedLink[];
+  groupSize: number;
 };
 
 export type SavedArticle = NewsGroup & {

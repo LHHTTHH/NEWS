@@ -2,7 +2,13 @@ import { XMLParser } from "fast-xml-parser";
 import GoogleNewsDecoder from "google-news-decoder";
 import type { NewsGroup, RelatedLink } from "../src/types";
 import { requireAuth } from "./_auth.js";
-import { fetchWithTimeout, isGetRequest, logWarning, setJsonHeaders } from "./_http.js";
+import {
+  fetchWithTimeout,
+  isGetRequest,
+  logWarning,
+  parseHttpUrl,
+  setJsonHeaders
+} from "./_http.js";
 
 type VercelRequest = {
   method?: string;
@@ -38,7 +44,7 @@ type ParsedRss = {
   };
 };
 
-type FlatArticle = {
+export type FlatArticle = {
   id: string;
   title: string;
   sourceName: string;
@@ -61,18 +67,21 @@ const parser = new XMLParser({
   trimValues: true
 });
 const TITLE_NOISE_PATTERNS = [
+  /[【［\[(](?:速報|独自|解説|動画|写真特集)[】］\])]\s*/giu,
   /\b(?:yahoo!?\s*ニュース)\b/giu,
   /\b(?:ロイター|reuters|共同通信|共同|時事通信|時事|afp|ap)\b/giu,
   /\b(?:配信|提供)\b/giu,
-  /\b(?:速報|写真特集|動画)\b/giu
+  /\b(?:速報|写真特集|動画)\b/giu,
+  /(?:\s|[-|｜:：])+(?:yahoo!?\s*ニュース|reuters|ロイター|共同通信|時事通信)$/giu
 ];
 
-function normalizeKeyword(keyword: string): string {
-  return keyword.trim().replace(/\s+/g, " ").slice(0, MAX_KEYWORD_LENGTH);
+export function normalizeKeyword(keyword: string): string {
+  return keyword.normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, MAX_KEYWORD_LENGTH);
 }
 
-function normalizeTitle(title: string): string {
+export function normalizeTitle(title: string): string {
   const normalized = title
+    .normalize("NFKC")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
@@ -81,14 +90,14 @@ function normalizeTitle(title: string): string {
   return normalized || title.toLowerCase().trim();
 }
 
-function normalizeComparableTitle(title: string): string {
-  let normalized = normalizeTitle(title);
+export function normalizeComparableTitle(title: string): string {
+  let normalized = title.normalize("NFKC").toLowerCase();
 
   for (const pattern of TITLE_NOISE_PATTERNS) {
     normalized = normalized.replace(pattern, " ");
   }
 
-  normalized = normalized.replace(/\s+/g, " ").trim();
+  normalized = normalizeTitle(normalized);
   return normalized || normalizeTitle(title);
 }
 
@@ -111,7 +120,7 @@ const HTML_ENTITY_MAP: Record<string, string> = {
   "&rsquo;": "'"
 };
 
-function decodeHtmlEntities(value: string): string {
+export function decodeHtmlEntities(value: string): string {
   return value.replace(/&(?:#\d+|#x[0-9a-fA-F]+|\w+);/g, (entity) => {
     if (entity in HTML_ENTITY_MAP) {
       return HTML_ENTITY_MAP[entity];
@@ -119,16 +128,29 @@ function decodeHtmlEntities(value: string): string {
 
     if (entity.startsWith("&#x") || entity.startsWith("&#X")) {
       const codePoint = Number.parseInt(entity.slice(3, -1), 16);
-      return Number.isNaN(codePoint) ? entity : String.fromCodePoint(codePoint);
+      return toSafeCodePoint(codePoint) ?? entity;
     }
 
     if (entity.startsWith("&#")) {
       const codePoint = Number.parseInt(entity.slice(2, -1), 10);
-      return Number.isNaN(codePoint) ? entity : String.fromCodePoint(codePoint);
+      return toSafeCodePoint(codePoint) ?? entity;
     }
 
     return entity;
   });
+}
+
+function toSafeCodePoint(codePoint: number): string | null {
+  if (
+    !Number.isInteger(codePoint) ||
+    codePoint < 0 ||
+    codePoint > 0x10ffff ||
+    (codePoint >= 0xd800 && codePoint <= 0xdfff)
+  ) {
+    return null;
+  }
+
+  return String.fromCodePoint(codePoint);
 }
 
 function stripHtml(value: string): string {
@@ -176,7 +198,7 @@ function normalizeSummary(description?: string): string {
   return cleaned.length > 180 ? `${cleaned.slice(0, 180).trim()}...` : cleaned;
 }
 
-function buildTextFingerprint(value: string): string {
+export function buildTextFingerprint(value: string): string {
   const stopWords = new Set([
     "the",
     "a",
@@ -205,7 +227,7 @@ function buildTextFingerprint(value: string): string {
   return [...new Set(tokens)].sort().join(" ");
 }
 
-function computeOverlapScore(left: string, right: string): number {
+export function computeOverlapScore(left: string, right: string): number {
   const leftTokens = left.split(" ").filter(Boolean);
   const rightTokens = right.split(" ").filter(Boolean);
 
@@ -226,7 +248,7 @@ function computeOverlapScore(left: string, right: string): number {
   return intersectionSize / Math.max(leftSet.size, rightSet.size);
 }
 
-function isLikelyDuplicateArticle(left: FlatArticle, right: FlatArticle): boolean {
+export function isLikelyDuplicateArticle(left: FlatArticle, right: FlatArticle): boolean {
   if (left.articleUrl === right.articleUrl) {
     return true;
   }
@@ -248,32 +270,30 @@ function isLikelyDuplicateArticle(left: FlatArticle, right: FlatArticle): boolea
   return titleOverlapScore >= 0.8 || (titleOverlapScore >= 0.6 && summaryOverlapScore >= 0.45);
 }
 
-function toIsoDate(value?: string): string {
+export function toIsoDate(value?: string): string {
   if (!value) {
-    return new Date(0).toISOString();
+    return "";
   }
 
   const parsedDate = new Date(value);
   if (Number.isNaN(parsedDate.getTime())) {
-    return new Date(0).toISOString();
+    return "";
   }
 
   return parsedDate.toISOString();
 }
 
-function parseKeywords(req: VercelRequest): string[] {
+export function parseKeywords(req: VercelRequest): string[] {
   const queryValue = req.query?.keywords;
 
   if (typeof queryValue === "string") {
-    return [...new Set(queryValue.split(",").map(normalizeKeyword).filter(Boolean))].slice(0, MAX_KEYWORDS);
+    return dedupeKeywords(queryValue.split(",").map(normalizeKeyword));
   }
 
   if (Array.isArray(queryValue)) {
-    return [
-      ...new Set(
-        queryValue.flatMap((value) => value.split(",")).map(normalizeKeyword).filter(Boolean)
-      )
-    ].slice(0, MAX_KEYWORDS);
+    return dedupeKeywords(
+      queryValue.flatMap((value) => value.split(",")).map(normalizeKeyword)
+    );
   }
 
   if (!req.url) {
@@ -287,7 +307,7 @@ function parseKeywords(req: VercelRequest): string[] {
     return [];
   }
 
-  return [...new Set(rawKeywords.split(",").map(normalizeKeyword).filter(Boolean))].slice(0, MAX_KEYWORDS);
+  return dedupeKeywords(rawKeywords.split(",").map(normalizeKeyword));
 }
 
 async function fetchKeywordArticles(keyword: string): Promise<FlatArticle[]> {
@@ -321,7 +341,13 @@ async function fetchKeywordArticles(keyword: string): Promise<FlatArticle[]> {
       const normalizedTitle = normalizeTitle(title);
       const normalizedComparableTitle = normalizeComparableTitle(title);
       const publishedAt = toIsoDate(item.pubDate);
-      const articleUrl = await decodeGoogleNewsUrl(link);
+      const decodedArticleUrl = await decodeGoogleNewsUrl(link);
+      const parsedArticleUrl = parseHttpUrl(decodedArticleUrl);
+      if (!parsedArticleUrl) {
+        return null;
+      }
+
+      const articleUrl = parsedArticleUrl.toString();
       const summary = normalizeSummary(item.description);
 
       return {
@@ -359,7 +385,7 @@ async function decodeGoogleNewsUrl(url: string): Promise<string> {
   return url;
 }
 
-function groupArticles(articles: FlatArticle[]): NewsGroup[] {
+export function groupArticles(articles: FlatArticle[]): NewsGroup[] {
   const grouped: FlatArticle[][] = [];
 
   for (const article of articles) {
@@ -392,14 +418,15 @@ function groupArticles(articles: FlatArticle[]): NewsGroup[] {
       }));
 
       return {
-        id: representative.id,
+        id: buildStableGroupId(groupArticlesForTitle),
         title: representative.title,
         sourceName: representative.sourceName,
         publishedAt: representative.publishedAt,
         summary: representative.summary,
         articleUrl: representative.articleUrl,
         keyword: representative.keyword,
-        relatedLinks
+        relatedLinks,
+        groupSize: groupArticlesForTitle.length
       };
     })
     .sort(
@@ -438,17 +465,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       keywords.map((keyword) => fetchKeywordArticles(keyword))
     );
 
-    const collectedArticles = results.flatMap((result) =>
-      result.status === "fulfilled" ? result.value : []
-    );
-    const failedKeywords = results.flatMap((result, index) =>
-      result.status === "rejected" ? [keywords[index]] : []
+    const { collectedArticles, failedKeywords } = collectKeywordResults(
+      results,
+      keywords
     );
 
     if (failedKeywords.length > 0) {
       logWarning("news_keyword_fetch_failed", {
-        failedKeywords,
-        requestedKeywords: keywords.length
+        failedKeywordCount: failedKeywords.length,
+        requestedKeywordCount: keywords.length
       });
     }
 
@@ -471,4 +496,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       error: "ニュースの取得中にエラーが発生しました。"
     });
   }
+}
+
+export function collectKeywordResults(
+  results: Array<PromiseSettledResult<FlatArticle[]>>,
+  keywords: string[]
+): { collectedArticles: FlatArticle[]; failedKeywords: string[] } {
+  return {
+    collectedArticles: results.flatMap((result) =>
+      result.status === "fulfilled" ? result.value : []
+    ),
+    failedKeywords: results.flatMap((result, index) =>
+      result.status === "rejected" ? [keywords[index]] : []
+    )
+  };
+}
+
+function dedupeKeywords(keywords: string[]): string[] {
+  const uniqueKeywords = new Map<string, string>();
+
+  for (const keyword of keywords) {
+    if (!keyword) {
+      continue;
+    }
+
+    const dedupeKey = keyword.toLowerCase();
+    if (!uniqueKeywords.has(dedupeKey)) {
+      uniqueKeywords.set(dedupeKey, keyword);
+    }
+  }
+
+  return [...uniqueKeywords.values()].slice(0, MAX_KEYWORDS);
+}
+
+function buildStableGroupId(group: FlatArticle[]): string {
+  const canonicalTitle = [...new Set(group.map((article) => article.normalizedComparableTitle))]
+    .filter(Boolean)
+    .sort()[0];
+
+  return canonicalTitle ? `topic:${canonicalTitle}` : group[0].id;
 }
