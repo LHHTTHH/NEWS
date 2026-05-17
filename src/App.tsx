@@ -9,6 +9,10 @@ import {
 } from "./lib/api";
 import { formatDateTime } from "./lib/format";
 import {
+  getReadingViewDescription,
+  isAuthConfigurationError
+} from "./lib/dashboard";
+import {
   loadExcludedSources,
   loadExcludedWords,
   loadKeywordEnabledMap,
@@ -34,6 +38,7 @@ import {
 import type { PeriodFilter, ReadingView } from "./lib/news";
 import {
   filterArticlesByReadingView,
+  getUnreadArticleIds,
   getReadingCounts,
   isArticleNewSince,
   isArticleRead,
@@ -104,8 +109,7 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>({ type: "all" });
   const [readingView, setReadingView] = useState<ReadingView>("unread");
-  const [readNotice, setReadNotice] = useState<string | null>(null);
-  const isFirstReadingSession = previousSessionAt === null;
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (isMobileMenuOpen) {
@@ -183,18 +187,18 @@ function App() {
   }, [readingState]);
 
   useEffect(() => {
-    if (!readNotice) {
+    if (!notice) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      setReadNotice(null);
+      setNotice(null);
     }, 4500);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [readNotice]);
+  }, [notice]);
 
   useEffect(() => {
     if (authStatus !== "authenticated") {
@@ -323,9 +327,29 @@ function App() {
     readingView,
     previousSessionAt
   );
+  const unreadVisibleArticleIds = getUnreadArticleIds(
+    readingFilteredArticles,
+    readingState
+  );
   const firstUnreadArticle = readingFilteredArticles.find(
     (article) => !isArticleRead(readingState, article.id)
   );
+  const readingViewDescription = getReadingViewDescription(
+    readingView,
+    previousSessionAt
+  );
+  const activeTabLabel =
+    activeTab.type === "all"
+      ? "すべてのキーワード"
+      : activeTab.type === "saved"
+        ? "保存済み"
+        : activeTab.keyword;
+  const headerSubtitle =
+    activeTab.type === "saved"
+      ? `${savedArticles.length}件を保存`
+      : `${activeTabLabel} / ${activePeriodLabel}${
+          previousSessionAt ? ` / 前回閲覧 ${formatDateTime(previousSessionAt)}` : ""
+        }`;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -403,18 +427,16 @@ function App() {
       return;
     }
 
-    setExcludedSources((currentSources) => {
-      if (
-        currentSources.some(
-          (currentSource) =>
-            normalizeSourceName(currentSource) === normalizedSourceName
-        )
-      ) {
-        return currentSources;
-      }
+    const alreadyExcluded = excludedSources.some(
+      (currentSource) => normalizeSourceName(currentSource) === normalizedSourceName
+    );
+    if (alreadyExcluded) {
+      setNotice(`${sourceName} はすでに除外済みです。`);
+      return;
+    }
 
-      return [...currentSources, sourceName];
-    });
+    setExcludedSources((currentSources) => [...currentSources, sourceName]);
+    setNotice(`${sourceName} を除外しました。`);
   }
 
   function handleRemoveExcludedSource(sourceNameToRemove: string) {
@@ -426,6 +448,7 @@ function App() {
           normalizeSourceName(sourceName) !== normalizedSourceName
       )
     );
+    setNotice(`${sourceNameToRemove} の除外を解除しました。`);
   }
 
   async function handleToggleArticleContent(article: NewsGroup) {
@@ -523,17 +546,12 @@ function App() {
   }
 
   function handleSaveArticle(article: NewsGroup) {
-    setSavedArticles((currentArticles) => {
-      if (
-        currentArticles.some(
-          (savedArticle) =>
-            savedArticle.id === article.id ||
-            savedArticle.articleUrl === article.articleUrl
-        )
-      ) {
-        return currentArticles;
-      }
+    if (isSaved(article)) {
+      setNotice("この記事はすでに保存済みです。");
+      return;
+    }
 
+    setSavedArticles((currentArticles) => {
       return [
         {
           ...article,
@@ -542,16 +560,22 @@ function App() {
         ...currentArticles
       ];
     });
+    setNotice("記事を保存しました。");
   }
 
   function handleRemoveSavedArticle(articleId: string) {
     setSavedArticles((currentArticles) =>
       currentArticles.filter((article) => article.id !== articleId)
     );
+    setNotice("保存から外しました。");
   }
 
-  function isSaved(articleId: string): boolean {
-    return savedArticles.some((article) => article.id === articleId);
+  function isSaved(article: Pick<NewsGroup, "id" | "articleUrl">): boolean {
+    return savedArticles.some(
+      (savedArticle) =>
+        savedArticle.id === article.id ||
+        savedArticle.articleUrl === article.articleUrl
+    );
   }
 
   function handleMarkArticleRead(articleId: string) {
@@ -567,7 +591,7 @@ function App() {
   }
 
   function handleMarkVisibleRead() {
-    const articleIds = readingFilteredArticles.map((article) => article.id);
+    const articleIds = unreadVisibleArticleIds;
     if (articleIds.length === 0) {
       return;
     }
@@ -575,7 +599,7 @@ function App() {
     setReadingState((currentState) =>
       markArticlesRead(currentState, articleIds)
     );
-    setReadNotice(`${articleIds.length}件を既読にしました。`);
+    setNotice(`${articleIds.length}件を既読にしました。`);
   }
 
   function handleJumpToFirstUnread() {
@@ -783,22 +807,19 @@ function App() {
             </button>
         </div>
 
-        {error && <p className="error-banner">{error}</p>}
-        {warning && <p className="warning-banner">{warning}</p>}
-
       </aside>
 
       <main className="main-content">
         <div className="main-header">
           <div>
             <h2>Dashboard</h2>
-            <p className="header-subtitle">
-              {activePeriodLabel}
-              {previousSessionAt ? ` / 前回閲覧 ${formatDateTime(previousSessionAt)}` : ""}
-            </p>
-            {countBreakdownText && <p style={{color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px'}}>Excluded: {countBreakdownText}</p>}
+            <p className="header-subtitle">{headerSubtitle}</p>
+            {activeTab.type !== "saved" && countBreakdownText && (
+              <p className="header-meta">非表示: {countBreakdownText}</p>
+            )}
           </div>
-          <div className="header-actions">
+          {activeTab.type !== "saved" && (
+            <div className="header-actions">
              <div className="period-filters">
                 {PERIOD_FILTER_OPTIONS.map((option) => (
                   <button
@@ -819,8 +840,49 @@ function App() {
               >
                 Refresh
              </button>
-          </div>
+            </div>
+          )}
         </div>
+
+        {(error || warning || loading) && (
+          <div className="status-banner-stack" aria-live="polite">
+            {error && (
+              <div className="error-banner status-banner">
+                <span>{error}</span>
+                <button
+                  className="ghost-button compact-button"
+                  type="button"
+                  onClick={() => void handleRefresh()}
+                  disabled={loading || activeKeywords.length === 0}
+                >
+                  再試行
+                </button>
+              </div>
+            )}
+            {warning && (
+              <div className="warning-banner status-banner">
+                <span>{warning}</span>
+                <button
+                  className="ghost-button compact-button"
+                  type="button"
+                  onClick={() => void handleRefresh()}
+                  disabled={loading || activeKeywords.length === 0}
+                >
+                  再試行
+                </button>
+              </div>
+            )}
+            {loading && articles.length > 0 && (
+              <p className="info-banner">記事を更新しています...</p>
+            )}
+          </div>
+        )}
+
+        {notice && (
+          <div className="feedback-row" aria-live="polite">
+            <span className="reading-notice">{notice}</span>
+          </div>
+        )}
 
         <div className="tab-bar-shell" aria-label="News tabs scroll horizontally">
           <div className="tab-bar">
@@ -828,7 +890,7 @@ function App() {
               className={`tab-item ${activeTab.type === "all" ? "is-active" : ""}`}
               onClick={() => setActiveTab({ type: "all" })}
             >
-              All News
+              すべて
             </button>
             {activeKeywords.map(keyword => (
               <button
@@ -845,7 +907,7 @@ function App() {
               className={`tab-item saved-tab ${activeTab.type === "saved" ? "is-active" : ""}`}
               onClick={() => setActiveTab({ type: "saved" })}
             >
-              Saved ({savedArticles.length})
+              保存済み {savedArticles.length}
             </button>
           </div>
         </div>
@@ -888,7 +950,7 @@ function App() {
                 className="ghost-button compact-button"
                 type="button"
                 onClick={handleMarkVisibleRead}
-                disabled={readingFilteredArticles.length === 0}
+                disabled={unreadVisibleArticleIds.length === 0}
               >
                 表示分を既読
               </button>
@@ -898,13 +960,7 @@ function App() {
 
         {activeTab.type !== "saved" && (
           <div className="reading-helper-row" aria-live="polite">
-            {readNotice ? (
-              <span className="reading-notice">{readNotice}</span>
-            ) : isFirstReadingSession ? (
-              <span className="reading-hint">
-                初回表示のため、新着は未読に近い扱いです。次回以降は前回閲覧後の記事だけが新着になります。
-              </span>
-            ) : null}
+            <span className="reading-hint">{readingViewDescription}</span>
           </div>
         )}
 
@@ -912,8 +968,8 @@ function App() {
           {activeTab.type === "saved" ? (
              sortedSavedArticles.length === 0 ? (
                <EmptyState
-                 title="No saved articles"
-                 description="Click the star icon on any article to read it later."
+                 title="保存済みの記事はありません"
+                 description="記事カードの保存ボタンから、あとで読む記事をここへ集められます。"
                />
              ) : (
                sortedSavedArticles.map((article) => (
@@ -923,9 +979,13 @@ function App() {
                       <span className="time">{formatDateTime(article.savedAt)}</span>
                     </div>
                     <h3>{article.title}</h3>
+                    <p className="article-summary">{article.summary}</p>
                     <div className="article-actions">
-                      <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="Open Original">Link</a>
-                      <button className="icon-button" style={{color: 'var(--danger)'}} type="button" onClick={() => handleRemoveSavedArticle(article.id)} title="Remove from saved">Remove</button>
+                      <span className="keyword-pill">{article.keyword}</span>
+                      <div className="card-icon-buttons">
+                        <a className="article-command-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="元記事を開く">元記事</a>
+                        <button className="article-command-button is-danger" type="button" onClick={() => handleRemoveSavedArticle(article.id)} title="保存から外す">削除</button>
+                      </div>
                     </div>
                  </article>
                ))
@@ -933,42 +993,48 @@ function App() {
           ) : (
              keywords.length === 0 ? (
               <EmptyState
-                title="Add a keyword to see the news"
-                description="Articles are fetched via Vercel Functions using Google News RSS."
+                title="キーワードを追加してください"
+                description="左のメニューから追いたい話題を追加すると、記事が表示されます。"
               />
             ) : activeKeywords.length === 0 ? (
               <EmptyState
-                title="No active keywords"
-                description="Turn on at least one keyword to view articles."
+                title="有効なキーワードがありません"
+                description="左のメニューで、少なくとも1つのキーワードをオンにしてください。"
               />
             ) : loading && articles.length === 0 ? (
               <EmptyState
-                title="Loading news"
-                description="Fetching the latest articles..."
+                title="記事を読み込んでいます"
+                description="最新の記事を取得しています。"
               />
             ) : articles.length === 0 && !loading ? (
               <EmptyState
-                title="No articles found"
-                description="Try changing keywords or refreshing."
+                title="記事が見つかりません"
+                description="キーワードを見直すか、もう一度更新してください。"
+                actionLabel="再試行"
+                onAction={() => void handleRefresh()}
               />
             ) : periodFilteredArticles.length === 0 && !loading ? (
               <EmptyState
-                title="No articles in the selected period"
-                description="Expand the period or refresh the feed."
+                title="この期間の記事はありません"
+                description="期間を広げるか、最新記事を再取得してください。"
+                actionLabel="再試行"
+                onAction={() => void handleRefresh()}
               />
             ) : tabFilteredArticles.length === 0 && !loading ? (
               <EmptyState
-                title="All articles excluded or no articles for this tab"
-                description="Try reducing excluded words or switch tabs."
+                title="表示できる記事がありません"
+                description="除外条件を減らすか、別のタブを選んでください。"
               />
             ) : readingFilteredArticles.length === 0 && !loading ? (
               <EmptyState
-                title={readingView === "new" ? "No new articles" : "No unread articles"}
+                title={readingView === "new" ? "新着はありません" : "未読はありません"}
                 description={
                   readingView === "new"
-                    ? "No articles were first seen after your previous visit."
-                    : "Switch to All to revisit articles you have already read."
+                    ? "前回閲覧後に初めて見えた記事はありません。"
+                    : "読み返すときは「すべて」に切り替えてください。"
                 }
+                actionLabel={readingView === "new" ? "未読を見る" : "すべてを見る"}
+                onAction={() => setReadingView(readingView === "new" ? "unread" : "all")}
               />
             ) : (
               readingFilteredArticles.map((article) => {
@@ -991,11 +1057,11 @@ function App() {
                   </div>
 
                   <div className="article-badges">
-                    {articleNew && <span className="status-pill is-new">New</span>}
-                    {!articleRead && <span className="status-pill">Unread</span>}
+                    {articleNew && <span className="status-pill is-new">新着</span>}
+                    {!articleRead && <span className="status-pill">未読</span>}
                     {article.groupSize > 1 && (
                       <span className="status-pill is-grouped">
-                        +{article.groupSize - 1} related
+                        関連 {article.groupSize - 1}件
                       </span>
                     )}
                   </div>
@@ -1026,7 +1092,7 @@ function App() {
 
                   {article.relatedLinks.length > 0 && (
                     <details className="related-links">
-                      <summary>Related coverage ({article.relatedLinks.length})</summary>
+                      <summary>関連記事 ({article.relatedLinks.length})</summary>
                       <ul>
                         {article.relatedLinks.map((relatedArticle) => (
                           <li key={`${article.id}-${relatedArticle.articleUrl}`}>
@@ -1047,20 +1113,20 @@ function App() {
                   <div className="article-actions">
                     <span className="keyword-pill">{article.keyword}</span>
                     <div className="card-icon-buttons">
-                      <button className="icon-button" type="button" onClick={() => { handleMarkArticleRead(article.id); void handleToggleArticleContent(article); }} title="Toggle Content">
-                        {expandedArticleIds[article.id] ? "Collapse" : "Read"}
+                      <button className="article-command-button" type="button" onClick={() => { handleMarkArticleRead(article.id); void handleToggleArticleContent(article); }} title="本文を開閉">
+                        {expandedArticleIds[article.id] ? "閉じる" : "本文"}
                       </button>
-                      <a className="icon-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="Open Original" onClick={() => handleMarkArticleRead(article.id)}>
-                        Link
+                      <a className="article-command-button" href={article.articleUrl} target="_blank" rel="noreferrer" title="元記事を開く" onClick={() => handleMarkArticleRead(article.id)}>
+                        元記事
                       </a>
-                      <button className="icon-button" type="button" onClick={() => handleToggleRead(article.id)} title={articleRead ? "Mark unread" : "Mark read"}>
-                        {articleRead ? "Unread" : "Done"}
+                      <button className="article-command-button" type="button" onClick={() => handleToggleRead(article.id)} title={articleRead ? "未読に戻す" : "既読にする"}>
+                        {articleRead ? "未読へ" : "既読"}
                       </button>
-                      <button className="icon-button" type="button" onClick={() => handleSaveArticle(article)} disabled={isSaved(article.id)} title={isSaved(article.id) ? "Saved" : "Save for later"}>
-                        {isSaved(article.id) ? "★" : "☆"}
+                      <button className="article-command-button" type="button" onClick={() => handleSaveArticle(article)} disabled={isSaved(article)} title={isSaved(article) ? "保存済み" : "あとで読む"}>
+                        {isSaved(article) ? "保存済み" : "保存"}
                       </button>
-                      <button className="icon-button" type="button" onClick={() => handleAddExcludedSource(article.sourceName)} title="Exclude Source">
-                        🚫
+                      <button className="article-command-button" type="button" onClick={() => handleAddExcludedSource(article.sourceName)} title="このソースを除外">
+                        除外
                       </button>
                     </div>
                   </div>
@@ -1078,6 +1144,8 @@ function App() {
 type EmptyStateProps = {
   title: string;
   description: string;
+  actionLabel?: string;
+  onAction?(): void;
 };
 
 type AuthScreenProps = {
@@ -1097,17 +1165,29 @@ function AuthScreen({
   onPasswordChange,
   onSubmit
 }: AuthScreenProps) {
+  const hasConfigurationError = isAuthConfigurationError(authError);
+
   return (
     <div className="auth-page-shell">
       <div className="auth-panel">
         <p className="eyebrow" style={{marginBottom: '8px', color: 'var(--text-secondary)'}}>Private News</p>
         <h1>AI News Collector</h1>
         <p className="auth-description">
-          Enter your password to access the modern news dashboard.
+          {hasConfigurationError
+            ? "サーバー側の認証設定を確認してください。"
+            : "パスワードを入力してニュースを開いてください。"}
         </p>
 
         {authStatus === "checking" ? (
-          <p className="muted-text">Checking authentication...</p>
+          <p className="muted-text">認証状態を確認しています...</p>
+        ) : hasConfigurationError ? (
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => window.location.reload()}
+          >
+            再読み込み
+          </button>
         ) : (
           <form className="auth-form" autoComplete="on" onSubmit={onSubmit}>
             <input
@@ -1121,7 +1201,7 @@ function AuthScreen({
               style={{position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', border: 0, clip: 'rect(0 0 0 0)'}}
             />
             <label className="field-label" htmlFor="auth-password" style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>
-              Password
+              パスワード
             </label>
             <input
               id="auth-password"
@@ -1139,7 +1219,7 @@ function AuthScreen({
               disabled={authLoading}
               style={{marginTop: '8px'}}
             >
-              {authLoading ? "Checking..." : "Unlock"}
+              {authLoading ? "確認中..." : "開く"}
             </button>
           </form>
         )}
@@ -1150,11 +1230,21 @@ function AuthScreen({
   );
 }
 
-function EmptyState({ title, description }: EmptyStateProps) {
+function EmptyState({
+  title,
+  description,
+  actionLabel,
+  onAction
+}: EmptyStateProps) {
   return (
     <div className="empty-state">
       <p className="empty-title">{title}</p>
       <p className="muted-text">{description}</p>
+      {actionLabel && onAction ? (
+        <button className="secondary-button compact-button" type="button" onClick={onAction}>
+          {actionLabel}
+        </button>
+      ) : null}
     </div>
   );
 }

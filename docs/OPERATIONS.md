@@ -9,15 +9,18 @@
 5. ログイン後に以下を確認
    - 期間フィルタが効く
    - `新着` / `未読` / `すべて` が切り替わる
+   - それぞれのビュー説明が表示される
    - `表示分を既読` 後に未読件数が減る
+   - 保存 / 除外 / 再試行のフィードバックが表示される
    - 部分失敗の警告が出ても成功記事は残る
    - モバイル幅でサイドバーがドロワーになる
+   - モバイル幅でタブや記事操作が横にはみ出さない
 
 ## 失敗時の見方
 
 - `一部キーワードの取得に失敗しました`
   - Google News RSS の一時失敗を疑う
-  - すぐ再試行せず、少し待ってから `Refresh`
+  - すぐ再試行せず、少し待ってから画面内の `再試行`
 - `ニュースを取得できませんでした`
   - 全キーワード失敗
   - ネットワーク、認証、Google News 側を順に確認
@@ -29,6 +32,8 @@
 
 - `NEWS_APP_PASSWORD` と `NEWS_AUTH_SECRET` の両方を設定する
 - `NEWS_AUTH_SECRET` はログイン用パスワードとは別のランダムな値にする
+- Vercel の Production / Preview / Development は別環境なので、使う環境ごとに必要な値を入れる
+- Vercel の env 変更は次の deployment から有効になる前提で確認する
 - 外部RSSを監視用途で連打しない
 - キーワード数を増やしすぎない
 - 既存 localStorage を消す前にバックアップする
@@ -52,6 +57,14 @@ NEWS_AUTH_SECRET=your-random-local-session-secret
 ```
 
 設定不足の確認だけなら `npm run doctor` を使う。`NEWS_AUTH_SECRET` が未設定の場合、アプリパスワードへはフォールバックせず API は `503` で止まる。
+
+## Vercel env 確認
+
+- Production: 本番公開に必須
+- Preview: preview deployment を使う場合に必須
+- Development: `vercel dev` で Vercel 側の値を使う運用なら確認
+- `NEWS_AUTH_SECRET` は十分長いランダム値にし、`NEWS_APP_PASSWORD` と同じ値にしない
+- 値そのものは issue / PR / チャット / 画面共有へ貼らない
 
 ## localStorage 復旧
 

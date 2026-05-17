@@ -195,6 +195,15 @@ export function getReadingCounts(
   };
 }
 
+export function getUnreadArticleIds(
+  articles: Array<Pick<NewsGroup, "id">>,
+  state: ReadingState
+): string[] {
+  return articles
+    .filter((article) => !isArticleRead(state, article.id))
+    .map((article) => article.id);
+}
+
 export function pruneReadingState(
   state: ReadingState,
   now = Date.now()

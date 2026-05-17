@@ -3,6 +3,7 @@ import {
   createEmptyReadingState,
   filterArticlesByReadingView,
   getReadingCounts,
+  getUnreadArticleIds,
   isArticleNewSince,
   isArticleRead,
   markArticlesRead,
@@ -49,6 +50,22 @@ describe("reading state", () => {
       unreadCount: 1,
       readCount: 1
     });
+  });
+
+  it("returns only currently unread article ids for bulk read actions", () => {
+    const articles = [group({ id: "old" }), group({ id: "new" })];
+    const seenState = mergeSeenArticles(
+      createEmptyReadingState(),
+      articles,
+      "2026-05-17T09:00:00.000Z"
+    );
+    const readState = markArticlesRead(
+      seenState,
+      ["old"],
+      "2026-05-17T09:30:00.000Z"
+    );
+
+    expect(getUnreadArticleIds(articles, readState)).toEqual(["new"]);
   });
 
   it("normalizes corrupted state without discarding valid records", () => {
