@@ -165,11 +165,27 @@ a {
 }
 
 /* ===== Tab Bar ===== */
+.tab-bar-shell {
+  position: relative;
+  margin-bottom: 24px;
+}
+
+.tab-bar-shell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 8px;
+  width: 44px;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(11, 15, 25, 0), var(--bg-color));
+}
+
 .tab-bar {
   display: flex;
   gap: 8px;
-  margin-bottom: 24px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   padding-bottom: 8px;
   scrollbar-width: thin;
   scrollbar-color: var(--panel-border) transparent;
@@ -206,6 +222,10 @@ a {
   color: white;
   border-color: transparent;
   box-shadow: var(--glow);
+}
+
+.saved-tab {
+  margin-left: auto;
 }
 
 /* ===== Main Content ===== */
@@ -337,7 +357,7 @@ button:disabled {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 8px;
 }
 
 .reading-filters,
@@ -366,6 +386,33 @@ button:disabled {
   background: rgba(59, 130, 246, 0.18);
   border-color: rgba(59, 130, 246, 0.4);
   color: var(--text-primary);
+}
+
+.reading-helper-row {
+  min-height: 24px;
+  margin-bottom: 16px;
+}
+
+.reading-hint,
+.reading-notice {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+}
+
+.reading-hint {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--panel-border);
+}
+
+.reading-notice {
+  color: #d1fae5;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.28);
 }
 
 .article-card {
@@ -785,6 +832,39 @@ button:disabled {
   .header-actions {
     width: 100%;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .period-filters {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+
+  .period-filter-button {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 0.78rem;
+  }
+
+  .header-actions .primary-button {
+    flex: 0 0 auto;
+    padding-inline: 14px;
+  }
+
+  .tab-bar-shell::before {
+    content: "→";
+    position: absolute;
+    top: 9px;
+    right: 10px;
+    z-index: 1;
+    color: var(--text-muted);
+    font-size: 1rem;
+    pointer-events: none;
+  }
+
+  .saved-tab {
+    margin-left: 0;
   }
 
   .reading-toolbar {
@@ -799,5 +879,16 @@ button:disabled {
 
   .reading-actions > button {
     flex: 1;
+  }
+
+  .reading-helper-row {
+    margin-top: -4px;
+  }
+
+  .reading-hint,
+  .reading-notice {
+    width: 100%;
+    border-radius: 8px;
+    line-height: 1.45;
   }
 }

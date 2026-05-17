@@ -104,6 +104,8 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>({ type: "all" });
   const [readingView, setReadingView] = useState<ReadingView>("unread");
+  const [readNotice, setReadNotice] = useState<string | null>(null);
+  const isFirstReadingSession = previousSessionAt === null;
 
   useEffect(() => {
     if (isMobileMenuOpen) {
@@ -179,6 +181,20 @@ function App() {
   useEffect(() => {
     saveReadingState(readingState);
   }, [readingState]);
+
+  useEffect(() => {
+    if (!readNotice) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setReadNotice(null);
+    }, 4500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [readNotice]);
 
   useEffect(() => {
     if (authStatus !== "authenticated") {
@@ -551,12 +567,15 @@ function App() {
   }
 
   function handleMarkVisibleRead() {
+    const articleIds = readingFilteredArticles.map((article) => article.id);
+    if (articleIds.length === 0) {
+      return;
+    }
+
     setReadingState((currentState) =>
-      markArticlesRead(
-        currentState,
-        readingFilteredArticles.map((article) => article.id)
-      )
+      markArticlesRead(currentState, articleIds)
     );
+    setReadNotice(`${articleIds.length}件を既読にしました。`);
   }
 
   function handleJumpToFirstUnread() {
@@ -803,31 +822,32 @@ function App() {
           </div>
         </div>
 
-        <div className="tab-bar">
-          <button
-            className={`tab-item ${activeTab.type === "all" ? "is-active" : ""}`}
-            onClick={() => setActiveTab({ type: "all" })}
-          >
-            All News
-          </button>
-          {activeKeywords.map(keyword => (
+        <div className="tab-bar-shell" aria-label="News tabs scroll horizontally">
+          <div className="tab-bar">
             <button
-              key={`tab-${keyword}`}
-              className={`tab-item ${
-                activeTab.type === "keyword" && activeTab.keyword === keyword ? "is-active" : ""
-              }`}
-              onClick={() => setActiveTab({ type: "keyword", keyword })}
+              className={`tab-item ${activeTab.type === "all" ? "is-active" : ""}`}
+              onClick={() => setActiveTab({ type: "all" })}
             >
-              {keyword}
+              All News
             </button>
-          ))}
-          <button
-            className={`tab-item ${activeTab.type === "saved" ? "is-active" : ""}`}
-            onClick={() => setActiveTab({ type: "saved" })}
-            style={{marginLeft: "auto"}}
-          >
-            Saved ({savedArticles.length})
-          </button>
+            {activeKeywords.map(keyword => (
+              <button
+                key={`tab-${keyword}`}
+                className={`tab-item ${
+                  activeTab.type === "keyword" && activeTab.keyword === keyword ? "is-active" : ""
+                }`}
+                onClick={() => setActiveTab({ type: "keyword", keyword })}
+              >
+                {keyword}
+              </button>
+            ))}
+            <button
+              className={`tab-item saved-tab ${activeTab.type === "saved" ? "is-active" : ""}`}
+              onClick={() => setActiveTab({ type: "saved" })}
+            >
+              Saved ({savedArticles.length})
+            </button>
+          </div>
         </div>
 
         {activeTab.type !== "saved" && (
@@ -873,6 +893,18 @@ function App() {
                 表示分を既読
               </button>
             </div>
+          </div>
+        )}
+
+        {activeTab.type !== "saved" && (
+          <div className="reading-helper-row" aria-live="polite">
+            {readNotice ? (
+              <span className="reading-notice">{readNotice}</span>
+            ) : isFirstReadingSession ? (
+              <span className="reading-hint">
+                初回表示のため、新着は未読に近い扱いです。次回以降は前回閲覧後の記事だけが新着になります。
+              </span>
+            ) : null}
           </div>
         )}
 
