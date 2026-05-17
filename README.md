@@ -124,6 +124,22 @@ localStorage.removeItem("ai-news-reading-state-v1")
 
 ## ローカル起動
 
+初回だけ `.env.example` を元に `.env` を作り、ローカル専用の値を設定します。
+`NEWS_AUTH_SECRET` はログイン用パスワードとは別のランダムな文字列にしてください。
+
+```bash
+cp .env.example .env
+```
+
+`.env`:
+
+```bash
+NEWS_APP_PASSWORD=your-local-login-password
+NEWS_AUTH_SECRET=your-random-local-session-secret
+```
+
+`.env` は Git 管理しません。ローカルでも `NEWS_APP_PASSWORD` と `NEWS_AUTH_SECRET` の両方が必要です。
+
 フロントだけ:
 
 ```bash
@@ -157,9 +173,6 @@ npm run build
 必須:
 
 - `NEWS_APP_PASSWORD`
-
-任意:
-
 - `NEWS_AUTH_SECRET`
 
 設定例:
@@ -169,6 +182,8 @@ npx vercel env add NEWS_APP_PASSWORD production
 npx vercel env add NEWS_AUTH_SECRET production
 ```
 
+`NEWS_APP_PASSWORD` はログイン入力と照合する値、`NEWS_AUTH_SECRET` は認証Cookieの署名にだけ使う独立secretです。
+`NEWS_AUTH_SECRET` が未設定でも `NEWS_APP_PASSWORD` へフォールバックしません。
 認証が未設定なら API は `503`、未ログインなら `401` を返します。ログインCookieは `HttpOnly`, `SameSite=Lax`, 本番では `Secure` です。
 
 ローカルで `.env` を使う場合は Git に入れず、owner-only 権限で保持してください。

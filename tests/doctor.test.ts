@@ -32,5 +32,25 @@ describe("doctor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("NEWS_APP_PASSWORD: missing");
+    expect(result.stdout).toContain("NEWS_AUTH_SECRET: missing");
+  });
+
+  it("exits non-zero when NEWS_AUTH_SECRET is missing", () => {
+    const result = spawnSync(process.execPath, ["scripts/doctor.mjs"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NEWS_APP_PASSWORD: "doctor-password",
+        NEWS_AUTH_SECRET: ""
+      }
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("NEWS_APP_PASSWORD: configured");
+    expect(result.stdout).toContain(
+      "NEWS_AUTH_SECRET: missing (required; no fallback)"
+    );
+    expect(result.stdout).not.toMatch(/doctor-password/);
   });
 });

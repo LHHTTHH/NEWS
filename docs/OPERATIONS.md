@@ -27,12 +27,31 @@
 
 ## 安全な運用
 
+- `NEWS_APP_PASSWORD` と `NEWS_AUTH_SECRET` の両方を設定する
+- `NEWS_AUTH_SECRET` はログイン用パスワードとは別のランダムな値にする
 - 外部RSSを監視用途で連打しない
 - キーワード数を増やしすぎない
 - 既存 localStorage を消す前にバックアップする
 - Vercel 環境変数を画面共有やログへ出さない
 - 本番公開前に `npm audit --omit=dev` を見る
 - 本番デプロイは build / test 後だけにする
+
+## ローカル認証設定
+
+初回は `.env.example` から `.env` を作る:
+
+```bash
+cp .env.example .env
+```
+
+`.env` にはローカル専用の値を入れる:
+
+```bash
+NEWS_APP_PASSWORD=your-local-login-password
+NEWS_AUTH_SECRET=your-random-local-session-secret
+```
+
+設定不足の確認だけなら `npm run doctor` を使う。`NEWS_AUTH_SECRET` が未設定の場合、アプリパスワードへはフォールバックせず API は `503` で止まる。
 
 ## localStorage 復旧
 

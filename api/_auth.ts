@@ -11,6 +11,8 @@ type VercelResponse = {
 const AUTH_COOKIE_NAME = "news_auth";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const SIGNATURE_VERSION = "v1";
+export const AUTH_CONFIGURATION_ERROR_MESSAGE =
+  "認証設定が未完了です。NEWS_APP_PASSWORD と NEWS_AUTH_SECRET を設定してください。";
 
 declare const process: {
   env: Record<string, string | undefined>;
@@ -26,7 +28,7 @@ export async function requireAuth(
 ): Promise<boolean> {
   if (!isAuthConfigured()) {
     res.status(503).json({
-      error: "認証設定が未完了です。NEWS_APP_PASSWORD を設定してください。"
+      error: AUTH_CONFIGURATION_ERROR_MESSAGE
     });
     return false;
   }
@@ -42,6 +44,10 @@ export async function requireAuth(
 }
 
 export async function hasValidSession(req: VercelRequest): Promise<boolean> {
+  if (!isAuthConfigured()) {
+    return false;
+  }
+
   const cookieValue = parseCookies(req.headers?.cookie)[AUTH_COOKIE_NAME];
   if (!cookieValue) {
     return false;
@@ -109,11 +115,11 @@ function getAppPassword(): string {
 }
 
 function getAuthSecret(): string {
-  return process.env.NEWS_AUTH_SECRET?.trim() || getAppPassword();
+  return process.env.NEWS_AUTH_SECRET?.trim() ?? "";
 }
 
 async function signSession(value: string): Promise<string> {
-  const secret = getAuthSecret();
+  const secret = getRequiredAuthSecret();
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
@@ -127,6 +133,15 @@ async function signSession(value: string): Promise<string> {
   );
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
   return toBase64Url(signature);
+}
+
+function getRequiredAuthSecret(): string {
+  const secret = getAuthSecret();
+  if (!secret) {
+    throw new Error("NEWS_AUTH_SECRET is not configured.");
+  }
+
+  return secret;
 }
 
 function toBase64Url(buffer: ArrayBuffer): string {

@@ -1,4 +1,5 @@
 import {
+  AUTH_CONFIGURATION_ERROR_MESSAGE,
   isAuthConfigured,
   setAuthCookie,
   verifyPassword
@@ -34,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!isAuthConfigured()) {
     res.status(503).json({
-      error: "認証設定が未完了です。NEWS_APP_PASSWORD を設定してください。"
+      error: AUTH_CONFIGURATION_ERROR_MESSAGE
     });
     return;
   }

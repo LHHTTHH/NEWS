@@ -17,7 +17,7 @@ const checks = [
   {
     name: "NEWS_AUTH_SECRET",
     ok: hasAuthSecret,
-    detail: hasAuthSecret ? "configured" : "missing (falls back to NEWS_APP_PASSWORD)"
+    detail: hasAuthSecret ? "configured" : "missing (required; no fallback)"
   }
 ];
 
@@ -28,6 +28,6 @@ for (const check of checks) {
   console.log(`${mark} ${check.name}: ${check.detail}`);
 }
 
-if (!checks[0].ok || !hasAppPassword) {
+if (!checks[0].ok || !hasAppPassword || !hasAuthSecret) {
   process.exitCode = 1;
 }

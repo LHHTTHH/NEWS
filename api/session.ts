@@ -1,4 +1,8 @@
-import { hasValidSession, isAuthConfigured } from "./_auth.js";
+import {
+  AUTH_CONFIGURATION_ERROR_MESSAGE,
+  hasValidSession,
+  isAuthConfigured
+} from "./_auth.js";
 import { isGetRequest, setJsonHeaders } from "./_http.js";
 
 type VercelRequest = {
@@ -26,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isAuthConfigured()) {
     res.status(503).json({
       authenticated: false,
-      error: "認証設定が未完了です。NEWS_APP_PASSWORD を設定してください。"
+      error: AUTH_CONFIGURATION_ERROR_MESSAGE
     });
     return;
   }
